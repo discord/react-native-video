@@ -43,6 +43,8 @@ yarn android
 ### For iOS
 
 ```bash
+RCT_NEW_ARCH_ENABLED=1 bundle exec pod install
+
 # using npm
 npm run ios
 
