@@ -6,7 +6,7 @@
 
 @implementation RCTVideoManager
 
-RCT_EXPORT_MODULE(RNVVideoManager);
+RCT_EXPORT_MODULE(RNVVideo);
 
 - (UIView *)view
 {
