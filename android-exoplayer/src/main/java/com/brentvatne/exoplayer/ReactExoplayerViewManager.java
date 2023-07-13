@@ -10,6 +10,7 @@ import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.common.MapBuilder;
+import com.facebook.react.config.ReactFeatureFlags;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.facebook.react.uimanager.ViewGroupManager;
 import com.facebook.react.uimanager.annotations.ReactProp;
@@ -27,7 +28,7 @@ import javax.annotation.Nullable;
 
 public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerView> {
 
-    private static final String REACT_CLASS = "RCTVideo";
+    private static final String REACT_CLASS = "RNVVideo";
 
     private static final String PROP_SRC = "src";
     private static final String PROP_SRC_URI = "uri";
@@ -96,7 +97,10 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
     public @Nullable Map<String, Object> getExportedCustomDirectEventTypeConstants() {
         MapBuilder.Builder<String, Object> builder = MapBuilder.builder();
         for (String event : VideoEventEmitter.Events) {
-            builder.put(event, MapBuilder.of("registrationName", event));
+            String eventKey = ReactFeatureFlags.enableFabricRenderer ?
+                "top" + event.substring(0, 1).toUpperCase() + event.substring(1) :
+                event;
+            builder.put(eventKey, MapBuilder.of("registrationName", event));
         }
         return builder.build();
     }

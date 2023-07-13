@@ -16,7 +16,7 @@ import java.util.Map;
 
 public class ReactVideoViewManager extends SimpleViewManager<ReactVideoView> {
 
-    public static final String REACT_CLASS = "RCTVideo";
+    public static final String REACT_CLASS = "RNVVideo";
 
     public static final String PROP_SRC = "src";
     public static final String PROP_SRC_URI = "uri";

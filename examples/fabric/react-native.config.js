@@ -1,4 +1,13 @@
 module.exports = {
+  project: {
+    android: {
+      unstable_reactLegacyComponentNames: ['RNVVideo'],
+    },
+    ios: {
+      unstable_reactLegacyComponentNames: [],
+    },
+  },
+
   dependencies: {
     'react-native-video': {
       platforms: {
