@@ -4,7 +4,7 @@ module.exports = {
       unstable_reactLegacyComponentNames: ['RNVVideo'],
     },
     ios: {
-      unstable_reactLegacyComponentNames: [],
+      unstable_reactLegacyComponentNames: ['RNVVideo'],
     },
   },
 
