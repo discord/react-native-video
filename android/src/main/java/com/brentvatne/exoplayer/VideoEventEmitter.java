@@ -443,6 +443,6 @@ class VideoEventEmitter {
     }
 
     private void receiveEvent(@VideoEvents String type, WritableMap event) {
-        eventEmitter.receiveEvent(viewId, type, event);
+        eventEmitter.receiveEvent(viewId, type, event != null ? event : Arguments.createMap());
     }
 }
