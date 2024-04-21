@@ -4,7 +4,6 @@ import android.annotation.TargetApi;
 import android.content.Context;
 import androidx.core.content.ContextCompat;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.Gravity;
 import android.view.SurfaceView;
 import android.view.TextureView;
@@ -14,15 +13,14 @@ import android.widget.FrameLayout;
 
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.PlaybackException;
-import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Timeline;
-import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.google.android.exoplayer2.text.Cue;
-import com.google.android.exoplayer2.text.TextRenderer;
+import com.google.android.exoplayer2.text.CueGroup;
 import com.google.android.exoplayer2.text.TextOutput;
+import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
 import com.google.android.exoplayer2.ui.SubtitleView;
 import com.google.android.exoplayer2.video.VideoSize;
@@ -217,8 +215,14 @@ public final class ExoPlayerView extends FrameLayout {
         // TextRenderer.Output implementation
 
         @Override
+        public void onCues(CueGroup cueGroup) {
+            // copy the cues to a new list to avoid concurrent modification
+            subtitleLayout.setCues(cueGroup.cues);
+        }
+
+        @Override
         public void onCues(List<Cue> cues) {
-            subtitleLayout.onCues(cues);
+            subtitleLayout.setCues(cues);
         }
 
         // SimpleExoPlayer.VideoListener implementation
@@ -267,7 +271,7 @@ public final class ExoPlayerView extends FrameLayout {
         }
 
         @Override
-        public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
+        public void onTracksChanged(Tracks tracks) {
             updateForCurrentTrackSelections();
         }
 
