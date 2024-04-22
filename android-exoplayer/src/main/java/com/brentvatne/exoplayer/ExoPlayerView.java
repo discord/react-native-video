@@ -281,7 +281,7 @@ public final class ExoPlayerView extends FrameLayout {
         }
 
         @Override
-        public void onSeekProcessed() {
+        public void onPositionDiscontinuity​(Player.PositionInfo oldPosition, Player.PositionInfo newPosition, int reason) {
             // Do nothing.
         }
 
