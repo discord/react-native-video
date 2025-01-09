@@ -100,7 +100,7 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
         MapBuilder.Builder<String, Object> builder = MapBuilder.builder();
         for (String event : VideoEventEmitter.Events) {
             String eventKey = ReactFeatureFlags.enableFabricRenderer ?
-                "top" + event.substring(0, 1).toUpperCase() + event.substring(1) :
+                "top" + event.replaceFirst("^on", "") :
                 event;
             builder.put(eventKey, MapBuilder.of("registrationName", event));
         }
