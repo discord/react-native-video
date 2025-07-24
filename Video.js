@@ -27,7 +27,11 @@ export default class Video extends Component {
   }
 
   setNativeProps(nativeProps) {
-    this._root.setNativeProps(nativeProps);
+    if (this._root && this._root.setNativeProps) {
+      this._root.setNativeProps(nativeProps);
+    } else {
+      console.warn('Video component not ready for setNativeProps call');
+    }
   }
 
   toTypeString(x) {

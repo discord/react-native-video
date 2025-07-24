@@ -260,6 +260,13 @@ class ReactExoplayerView extends FrameLayout implements
             return;
         }
         setPlayWhenReady(false);
+        if (player != null) {
+            try {
+                player.stop();
+            } catch (Exception e) {
+                // Ignore stop errors
+            }
+        }
     }
 
     @Override
@@ -533,7 +540,12 @@ class ReactExoplayerView extends FrameLayout implements
     private void releasePlayer() {
         if (player != null) {
             updateResumePosition();
-            player.release();
+            try {
+                player.stop();
+                player.release();
+            } catch (Exception e) {
+                // Ignore release errors to prevent crash loops
+            }
             ReactExoplayerView self = this;
             player.removeListener(self);
             trackSelector = null;
@@ -925,6 +937,14 @@ class ReactExoplayerView extends FrameLayout implements
         String errorString = "PlaybackException type : " + exoException.type;
         if (exoException.type == ExoPlaybackException.TYPE_RENDERER) {
             Exception cause = exoException.getRendererException();
+            
+            if (cause != null && cause.getMessage() != null && 
+                cause.getMessage().contains("MediaCodecVideoRenderer")) {
+                releasePlayer();
+                initializePlayer();
+                return;
+            }
+            
             if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
                 // Special case for decoder initialization failures.
                 MediaCodecRenderer.DecoderInitializationException decoderInitializationException =
