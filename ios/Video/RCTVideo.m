@@ -780,13 +780,6 @@ static int const RCTVideoUnset = -1;
                                              object:nil];
   
   [[NSNotificationCenter defaultCenter] removeObserver:self
-                                                  name:AVPlayerItemNewAccessLogEntryNotification
-                                                object:nil];
-  [[NSNotificationCenter defaultCenter] addObserver:self
-                                           selector:@selector(handleAVPlayerAccess:)
-                                               name:AVPlayerItemNewAccessLogEntryNotification
-                                             object:nil];
-  [[NSNotificationCenter defaultCenter] removeObserver:self
                                                   name: AVPlayerItemFailedToPlayToEndTimeNotification
                                                 object:nil];
   [[NSNotificationCenter defaultCenter] addObserver:self
@@ -796,16 +789,6 @@ static int const RCTVideoUnset = -1;
   
 }
 
-- (void)handleAVPlayerAccess:(NSNotification *)notification {
-  AVPlayerItemAccessLog *accessLog = [((AVPlayerItem *)notification.object) accessLog];
-  AVPlayerItemAccessLogEvent *lastEvent = accessLog.events.lastObject;
-  
-  /* TODO: get this working
-   if (self.onBandwidthUpdate) {
-   self.onBandwidthUpdate(@{@"bitrate": [NSNumber numberWithFloat:lastEvent.observedBitrate]});
-   }
-   */
-}
 
 - (void)didFailToFinishPlaying:(NSNotification *)notification {
   NSError *error = notification.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];
