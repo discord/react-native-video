@@ -890,7 +890,7 @@ static int const RCTVideoUnset = -1;
 }
 
 - (void)setupPipController {
-  if (!_pipController && _playerLayer && [AVPictureInPictureController isPictureInPictureSupported]) {
+  if (_pictureInPicture && !_pipController && _playerLayer && [AVPictureInPictureController isPictureInPictureSupported]) {
     // Create new controller passing reference to the AVPlayerLayer
     _pipController = [[AVPictureInPictureController alloc] initWithPlayerLayer:_playerLayer];
     _pipController.delegate = self;
@@ -1056,7 +1056,11 @@ static int const RCTVideoUnset = -1;
 {
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionCategory category = nil;
-    AVAudioSessionCategoryOptions options = nil;
+    // This is no longer an object, but an int, that can't be cast
+    // to from nil. Use a bool flag and default initialize the enum.
+    // v6 in swift just makes this an optional enum.
+    AVAudioSessionCategoryOptions options;
+    bool optionsSet = false;
 
     if([_ignoreSilentSwitch isEqualToString:@"ignore"]) {
       category = AVAudioSessionCategoryPlayback;
@@ -1066,15 +1070,17 @@ static int const RCTVideoUnset = -1;
 
     if([_mixWithOthers isEqualToString:@"mix"]) {
       options = AVAudioSessionCategoryOptionMixWithOthers;
+      optionsSet = true;
     } else if([_mixWithOthers isEqualToString:@"duck"]) {
       options = AVAudioSessionCategoryOptionDuckOthers;
+      optionsSet = true;
     }
 
-    if (category != nil && options != nil) {
+    if (category != nil && optionsSet) {
       [session setCategory:category withOptions:options error:nil];
-    } else if (category != nil && options == nil) {
+    } else if (category != nil && !optionsSet) {
       [session setCategory:category error:nil];
-    } else if (category == nil && options != nil) {
+    } else if (category == nil && optionsSet) {
       [session setCategory:session.category withOptions:options error:nil];
     }
 }
