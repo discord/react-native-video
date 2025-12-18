@@ -13,11 +13,6 @@ RCT_EXPORT_MODULE(RNVVideo);
   return [[RCTVideo alloc] initWithEventDispatcher:self.bridge.eventDispatcher];
 }
 
-- (dispatch_queue_t)methodQueue
-{
-    return self.bridge.uiManager.methodQueue;
-}
-
 RCT_EXPORT_VIEW_PROPERTY(src, NSDictionary);
 RCT_EXPORT_VIEW_PROPERTY(drm, NSDictionary);
 RCT_EXPORT_VIEW_PROPERTY(maxBitRate, float);
