@@ -471,6 +471,7 @@ Video.propTypes = {
   pictureInPicture: PropTypes.bool,
   playInBackground: PropTypes.bool,
   preferredForwardBufferDuration: PropTypes.number,
+  preventsDisplaySleepDuringVideoPlayback: PropTypes.bool,
   playWhenInactive: PropTypes.bool,
   ignoreSilentSwitch: PropTypes.oneOf(['ignore', 'obey']),
   reportBandwidth: PropTypes.bool,
