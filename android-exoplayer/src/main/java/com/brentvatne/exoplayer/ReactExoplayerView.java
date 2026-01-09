@@ -671,7 +671,12 @@ class ReactExoplayerView extends FrameLayout implements
             case AudioManager.AUDIOFOCUS_LOSS:
                 this.hasAudioFocus = false;
                 eventEmitter.audioFocusChanged(false);
-                pausePlayback();
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        pausePlayback();
+                    }
+                });
                 audioManager.abandonAudioFocus(this);
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
@@ -689,12 +694,26 @@ class ReactExoplayerView extends FrameLayout implements
             if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
                 // Lower the volume
                 if (!muted) {
-                    player.setVolume(audioVolume * 0.8f);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (player != null) {
+                                player.setVolume(audioVolume * 0.8f);
+                            }
+                        }
+                    });
                 }
             } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
                 // Raise it back to normal
                 if (!muted) {
-                    player.setVolume(audioVolume * 1);
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (player != null) {
+                                player.setVolume(audioVolume * 1);
+                            }
+                        }
+                    });
                 }
             }
         }
