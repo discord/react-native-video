@@ -229,6 +229,11 @@ public final class ExoPlayerView extends FrameLayout {
 
         @Override
         public void onVideoSizeChanged(VideoSize videoSize) {
+            // This avoids a case where HLS passes height & width of 0 when initialization
+            // which causes aspect ratio to be 1:1 and gets stuck.
+            if (videoSize.width == 0 && videoSize.height == 0) {
+                return;
+            }
             boolean isInitialRatio = layout.getAspectRatio() == 0;
             layout.setAspectRatio(videoSize.height == 0 ? 1 : (videoSize.width * videoSize.pixelWidthHeightRatio) / videoSize.height);
 
