@@ -1076,13 +1076,29 @@ static int const RCTVideoUnset = -1;
       optionsSet = true;
     }
 
-    if (category != nil && optionsSet) {
-      [session setCategory:category withOptions:options error:nil];
-    } else if (category != nil && !optionsSet) {
-      [session setCategory:category error:nil];
-    } else if (category == nil && optionsSet) {
-      [session setCategory:session.category withOptions:options error:nil];
+    if (!optionsSet && category == nil) {
+      return;
     }
+
+    if (optionsSet) {
+      NSString *effectiveCategory = category ?: session.category;
+      // Clear mix/duck bits before applying the new one so switching between
+      // "mix" and "duck" replaces rather than accumulates.
+      // 
+      // Other session options (e.g. AllowBluetooth) are preserved through the mask.
+      // fixes a bug where a video player would overwrite options set by the voice engine, causing
+      // bluetooth headsets to be unselectable during a call.
+
+      // NOTE: the long term fix is probably to have a singleton manager handling the options
+      // individual components handling this will inevitably step on each other.
+      AVAudioSessionCategoryOptions mixDuckMask =
+          AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDuckOthers;
+      AVAudioSessionCategoryOptions mergedOptions = (session.categoryOptions & ~mixDuckMask) | options;
+      [session setCategory:effectiveCategory withOptions:mergedOptions error:nil];
+      return;
+    }
+
+    [session setCategory:category error:nil];
 }
 
 - (void)setRepeat:(BOOL)repeat {
