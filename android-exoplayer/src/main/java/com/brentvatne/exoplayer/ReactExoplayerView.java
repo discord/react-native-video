@@ -149,6 +149,7 @@ class ReactExoplayerView extends FrameLayout implements
     private float mProgressUpdateInterval = 250.0f;
     private boolean playInBackground = false;
     private Map<String, String> requestHeaders;
+    private String httpEngine = null;
     private boolean mReportBandwidth = false;
     private UUID drmUUID = null;
     private String drmLicenseUrl = null;
@@ -647,6 +648,12 @@ class ReactExoplayerView extends FrameLayout implements
      * @return A new DataSource factory.
      */
     private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
+        if (httpEngine != null && !httpEngine.isEmpty() && !httpEngine.equals("default")) {
+            DataSource.Factory namedFactory = DataSourceUtil.getNamedDataSourceFactory(httpEngine);
+            if (namedFactory != null) {
+                return namedFactory;
+            }
+        }
         return DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext,
                 useBandwidthMeter ? bandwidthMeter : null, requestHeaders);
     }
@@ -1310,6 +1317,10 @@ class ReactExoplayerView extends FrameLayout implements
 
     public void setDisableFocus(boolean disableFocus) {
         this.disableFocus = disableFocus;
+    }
+
+    public void setHttpEngine(String httpEngine) {
+        this.httpEngine = httpEngine;
     }
 
     public void setFullscreen(boolean fullscreen) {

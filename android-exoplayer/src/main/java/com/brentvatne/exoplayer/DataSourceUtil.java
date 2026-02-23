@@ -13,6 +13,7 @@ import com.google.android.exoplayer2.util.Util;
 
 import okhttp3.JavaNetCookieJar;
 import okhttp3.OkHttpClient;
+import java.util.HashMap;
 import java.util.Map;
 
 public class DataSourceUtil {
@@ -24,6 +25,7 @@ public class DataSourceUtil {
     private static DataSource.Factory defaultDataSourceFactory = null;
     private static HttpDataSource.Factory defaultHttpDataSourceFactory = null;
     private static String userAgent = null;
+    private static final Map<String, DataSource.Factory> namedDataSourceFactories = new HashMap<>();
 
     public static void setUserAgent(String userAgent) {
         DataSourceUtil.userAgent = userAgent;
@@ -68,6 +70,15 @@ public class DataSourceUtil {
 
     public static void setDefaultHttpDataSourceFactory(HttpDataSource.Factory factory) {
         DataSourceUtil.defaultHttpDataSourceFactory = factory;
+    }
+
+    public static void registerDataSourceFactory(String name, DataSource.Factory factory) {
+        namedDataSourceFactories.put(name, factory);
+    }
+
+    public static DataSource.Factory getNamedDataSourceFactory(String name) {
+        DataSource.Factory factory = namedDataSourceFactories.get(name);
+        return factory != null ? factory : defaultDataSourceFactory;
     }
 
     private static DataSource.Factory buildRawDataSourceFactory(ReactContext context) {
