@@ -1045,9 +1045,7 @@ class ReactExoplayerView extends FrameLayout implements
             this.srcUri = uri;
             this.extension = extension;
             this.requestHeaders = headers;
-            this.mediaDataSourceFactory =
-                    DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext, bandwidthMeter,
-                            this.requestHeaders);
+            this.mediaDataSourceFactory = buildDataSourceFactory(true);
 
             if (!isSourceEqual) {
                 reloadSource();
@@ -1321,6 +1319,9 @@ class ReactExoplayerView extends FrameLayout implements
 
     public void setHttpEngine(String httpEngine) {
         this.httpEngine = httpEngine;
+        if (srcUri != null) {
+            this.mediaDataSourceFactory = buildDataSourceFactory(true);
+        }
     }
 
     public void setFullscreen(boolean fullscreen) {
