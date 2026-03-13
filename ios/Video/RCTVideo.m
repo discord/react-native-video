@@ -913,6 +913,10 @@ static int const RCTVideoUnset = -1;
 
 - (void)setPaused:(BOOL)paused
 {
+  if (paused == _paused && _playerItem.status == AVPlayerItemStatusReadyToPlay) {
+    return;
+  }
+
   if (paused) {
     [_player pause];
     [_player setRate:0.0];
@@ -928,7 +932,7 @@ static int const RCTVideoUnset = -1;
     }
     [_player setRate:_rate];
   }
-  
+
   _paused = paused;
 }
 
