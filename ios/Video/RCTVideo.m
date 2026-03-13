@@ -1054,6 +1054,14 @@ static int const RCTVideoUnset = -1;
 
 - (void)configureAudio
 {
+    // When mixing with other audio (e.g. a voice call), skip audio session
+    // reconfiguration entirely. The existing session owner (voice engine)
+    // has already set the appropriate category and options. Calling
+    // setCategory here would fight with it, causing audio stuttering.
+    if ([_mixWithOthers isEqualToString:@"mix"]) {
+      return;
+    }
+
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionCategory category = nil;
     // This is no longer an object, but an int, that can't be cast
