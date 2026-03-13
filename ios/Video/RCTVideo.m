@@ -1084,7 +1084,7 @@ static int const RCTVideoUnset = -1;
       NSString *effectiveCategory = category ?: session.category;
       // Clear mix/duck bits before applying the new one so switching between
       // "mix" and "duck" replaces rather than accumulates.
-      // 
+      //
       // Other session options (e.g. AllowBluetooth) are preserved through the mask.
       // fixes a bug where a video player would overwrite options set by the voice engine, causing
       // bluetooth headsets to be unselectable during a call.
@@ -1094,10 +1094,19 @@ static int const RCTVideoUnset = -1;
       AVAudioSessionCategoryOptions mixDuckMask =
           AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDuckOthers;
       AVAudioSessionCategoryOptions mergedOptions = (session.categoryOptions & ~mixDuckMask) | options;
+
+      // Skip redundant setCategory calls to avoid audio stuttering during HLS
+      // segment transitions, which repeatedly trigger configureAudio.
+      if ([session.category isEqualToString:effectiveCategory] && session.categoryOptions == mergedOptions) {
+        return;
+      }
       [session setCategory:effectiveCategory withOptions:mergedOptions error:nil];
       return;
     }
 
+    if ([session.category isEqualToString:category]) {
+      return;
+    }
     [session setCategory:category error:nil];
 }
 
