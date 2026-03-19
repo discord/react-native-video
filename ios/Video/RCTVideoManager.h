@@ -3,4 +3,6 @@
 
 @interface RNVVideoManager : RCTViewManager <RCTBridgeModule>
 
++ (BOOL)guardAudioSession;
+
 @end

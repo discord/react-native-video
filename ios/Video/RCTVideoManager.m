@@ -4,9 +4,19 @@
 #import <React/RCTUIManager.h>
 #import <AVFoundation/AVFoundation.h>
 
+static BOOL _guardAudioSession = NO;
+
 @implementation RNVVideoManager
 
 RCT_EXPORT_MODULE(RNVVideo);
+
++ (BOOL)guardAudioSession {
+    return _guardAudioSession;
+}
+
+RCT_EXPORT_METHOD(setGuardAudioSession:(BOOL)enabled) {
+    _guardAudioSession = enabled;
+}
 
 - (UIView *)view
 {

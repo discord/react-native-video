@@ -1,5 +1,6 @@
 #import <React/RCTConvert.h>
 #import "RCTVideo.h"
+#import "RCTVideoManager.h"
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventDispatcher.h>
 #import <React/UIView+React.h>
@@ -195,16 +196,20 @@ static int const RCTVideoUnset = -1;
   // @see endScrubbing in AVPlayerDemoPlaybackViewController.m
   // of https://developer.apple.com/library/ios/samplecode/AVPlayerDemo/Introduction/Intro.html
 
-  // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
-  // methods (e.g. currentDate) that may block on internal dispatch_sync without
-  // stalling the main thread. This is safe because removePlayerTimeObserver
-  // (called during teardown) guarantees no further callbacks after it returns.
-  if (!_progressQueue) {
-    _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
+  dispatch_queue_t queue = NULL;
+  if ([RNVVideoManager guardAudioSession]) {
+    // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
+    // methods (e.g. currentDate) that may block on internal dispatch_sync without
+    // stalling the main thread. This is safe because removePlayerTimeObserver
+    // (called during teardown) guarantees no further callbacks after it returns.
+    if (!_progressQueue) {
+      _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
+    }
+    queue = _progressQueue;
   }
   __weak RCTVideo *weakSelf = self;
   _timeObserver = [_player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(progressUpdateIntervalMS, NSEC_PER_SEC)
-                                                        queue:_progressQueue
+                                                        queue:queue
                                                    usingBlock:^(CMTime time) { [weakSelf sendProgressUpdate]; }
                    ];
 }
@@ -283,15 +288,12 @@ static int const RCTVideoUnset = -1;
     return;
   }
 
-  // WARNING: currentTime and currentDate can block for 100ms+ when VPIO is
-  // active. sendProgressUpdate must stay off the main thread (see _progressQueue
-  // in addPlayerTimeObserver). Event delivery is dispatched back to main below.
   CMTime currentTime = _player.currentTime;
   NSDate *currentPlaybackTime = _player.currentItem.currentDate;
   const Float64 duration = CMTimeGetSeconds(playerDuration);
   const Float64 currentTimeSecs = CMTimeGetSeconds(currentTime);
 
-  dispatch_async(dispatch_get_main_queue(), ^{
+  void (^deliverProgress)(void) = ^{
     [[NSNotificationCenter defaultCenter] postNotificationName:@"RCTVideo_progress" object:nil userInfo:@{@"progress": [NSNumber numberWithDouble: currentTimeSecs / duration]}];
 
     if( currentTimeSecs >= 0 && self.onVideoProgress) {
@@ -305,7 +307,15 @@ static int const RCTVideoUnset = -1;
                              @"seekableDuration": [self calculateSeekableDuration],
                              });
     }
-  });
+  };
+
+  if ([RNVVideoManager guardAudioSession]) {
+    // When on the background _progressQueue, dispatch back to main for event delivery.
+    dispatch_async(dispatch_get_main_queue(), deliverProgress);
+  } else {
+    // Already on main queue (queue:NULL), deliver inline.
+    deliverProgress();
+  }
 }
 
 /*!
@@ -1068,8 +1078,10 @@ static int const RCTVideoUnset = -1;
 
 - (void)configureAudio
 {
+    BOOL guard = [RNVVideoManager guardAudioSession];
+
     // Muted videos don't need to touch the audio session.
-    if (_muted) return;
+    if (guard && _muted) return;
 
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionCategory category = nil;
@@ -1114,16 +1126,16 @@ static int const RCTVideoUnset = -1;
 
       // Skip the setCategory XPC call if nothing would change. It can block the main thread
       // and cause playback stutter ... (we've seen this very specifically when the app is set to
-      // AVAudioSessionModeVoiceChat). This guard is preventative ... ideally we wouldn't have 
+      // AVAudioSessionModeVoiceChat). This guard is preventative ... ideally we wouldn't have
       // extra / excessive calls to this method at all, but such is life.
-      if ([session.category isEqualToString:effectiveCategory] && session.categoryOptions == effectiveOptions) {
+      if (guard && [session.category isEqualToString:effectiveCategory] && session.categoryOptions == effectiveOptions) {
         return;
       }
       [session setCategory:effectiveCategory withOptions:effectiveOptions error:nil];
       return;
     }
 
-    if ([session.category isEqualToString:category]) {
+    if (guard && [session.category isEqualToString:category]) {
       return;
     }
     [session setCategory:category error:nil];
