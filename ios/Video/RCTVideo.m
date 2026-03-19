@@ -54,6 +54,7 @@ static int const RCTVideoUnset = -1;
   Float64 _progressUpdateInterval;
   BOOL _controls;
   id _timeObserver;
+  dispatch_queue_t _progressQueue;
   
   /* Keep track of any modifiers, need to be applied after each play */
   float _volume;
@@ -193,9 +194,17 @@ static int const RCTVideoUnset = -1;
   const Float64 progressUpdateIntervalMS = _progressUpdateInterval / 1000;
   // @see endScrubbing in AVPlayerDemoPlaybackViewController.m
   // of https://developer.apple.com/library/ios/samplecode/AVPlayerDemo/Introduction/Intro.html
+
+  // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
+  // methods (e.g. currentDate) that may block on internal dispatch_sync without
+  // stalling the main thread. This is safe because removePlayerTimeObserver
+  // (called during teardown) guarantees no further callbacks after it returns.
+  if (!_progressQueue) {
+    _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
+  }
   __weak RCTVideo *weakSelf = self;
   _timeObserver = [_player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(progressUpdateIntervalMS, NSEC_PER_SEC)
-                                                        queue:NULL
+                                                        queue:_progressQueue
                                                    usingBlock:^(CMTime time) { [weakSelf sendProgressUpdate]; }
                    ];
 }
@@ -268,30 +277,35 @@ static int const RCTVideoUnset = -1;
   if (video == nil || video.status != AVPlayerItemStatusReadyToPlay) {
     return;
   }
-  
+
   CMTime playerDuration = [self playerItemDuration];
   if (CMTIME_IS_INVALID(playerDuration)) {
     return;
   }
-  
+
+  // WARNING: currentTime and currentDate can block for 100ms+ when VPIO is
+  // active. sendProgressUpdate must stay off the main thread (see _progressQueue
+  // in addPlayerTimeObserver). Event delivery is dispatched back to main below.
   CMTime currentTime = _player.currentTime;
   NSDate *currentPlaybackTime = _player.currentItem.currentDate;
   const Float64 duration = CMTimeGetSeconds(playerDuration);
   const Float64 currentTimeSecs = CMTimeGetSeconds(currentTime);
-  
-  [[NSNotificationCenter defaultCenter] postNotificationName:@"RCTVideo_progress" object:nil userInfo:@{@"progress": [NSNumber numberWithDouble: currentTimeSecs / duration]}];
-  
-  if( currentTimeSecs >= 0 && self.onVideoProgress) {
-    self.onVideoProgress(@{
-                           @"currentTime": [NSNumber numberWithFloat:CMTimeGetSeconds(currentTime)],
-                           @"playableDuration": [self calculatePlayableDuration],
-                           @"atValue": [NSNumber numberWithLongLong:currentTime.value],
-                           @"atTimescale": [NSNumber numberWithInt:currentTime.timescale],
-                           @"currentPlaybackTime": [NSNumber numberWithLongLong:[@(floor([currentPlaybackTime timeIntervalSince1970] * 1000)) longLongValue]],
-                           @"target": self.reactTag,
-                           @"seekableDuration": [self calculateSeekableDuration],
-                           });
-  }
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"RCTVideo_progress" object:nil userInfo:@{@"progress": [NSNumber numberWithDouble: currentTimeSecs / duration]}];
+
+    if( currentTimeSecs >= 0 && self.onVideoProgress) {
+      self.onVideoProgress(@{
+                             @"currentTime": [NSNumber numberWithFloat:CMTimeGetSeconds(currentTime)],
+                             @"playableDuration": [self calculatePlayableDuration],
+                             @"atValue": [NSNumber numberWithLongLong:currentTime.value],
+                             @"atTimescale": [NSNumber numberWithInt:currentTime.timescale],
+                             @"currentPlaybackTime": [NSNumber numberWithLongLong:currentPlaybackTime ? [@(floor([currentPlaybackTime timeIntervalSince1970] * 1000)) longLongValue] : 0],
+                             @"target": self.reactTag,
+                             @"seekableDuration": [self calculateSeekableDuration],
+                             });
+    }
+  });
 }
 
 /*!
@@ -1054,6 +1068,9 @@ static int const RCTVideoUnset = -1;
 
 - (void)configureAudio
 {
+    // Muted videos don't need to touch the audio session.
+    if (_muted) return;
+
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionCategory category = nil;
     // This is no longer an object, but an int, that can't be cast
@@ -1084,7 +1101,7 @@ static int const RCTVideoUnset = -1;
       NSString *effectiveCategory = category ?: session.category;
       // Clear mix/duck bits before applying the new one so switching between
       // "mix" and "duck" replaces rather than accumulates.
-      // 
+      //
       // Other session options (e.g. AllowBluetooth) are preserved through the mask.
       // fixes a bug where a video player would overwrite options set by the voice engine, causing
       // bluetooth headsets to be unselectable during a call.
@@ -1093,11 +1110,22 @@ static int const RCTVideoUnset = -1;
       // individual components handling this will inevitably step on each other.
       AVAudioSessionCategoryOptions mixDuckMask =
           AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDuckOthers;
-      AVAudioSessionCategoryOptions mergedOptions = (session.categoryOptions & ~mixDuckMask) | options;
-      [session setCategory:effectiveCategory withOptions:mergedOptions error:nil];
+      AVAudioSessionCategoryOptions effectiveOptions = (session.categoryOptions & ~mixDuckMask) | options;
+
+      // Skip the setCategory XPC call if nothing would change. It can block the main thread
+      // and cause playback stutter ... (we've seen this very specifically when the app is set to
+      // AVAudioSessionModeVoiceChat). This guard is preventative ... ideally we wouldn't have 
+      // extra / excessive calls to this method at all, but such is life.
+      if ([session.category isEqualToString:effectiveCategory] && session.categoryOptions == effectiveOptions) {
+        return;
+      }
+      [session setCategory:effectiveCategory withOptions:effectiveOptions error:nil];
       return;
     }
 
+    if ([session.category isEqualToString:category]) {
+      return;
+    }
     [session setCategory:category error:nil];
 }
 
