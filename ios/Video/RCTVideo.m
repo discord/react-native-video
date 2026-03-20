@@ -197,7 +197,7 @@ static int const RCTVideoUnset = -1;
   // of https://developer.apple.com/library/ios/samplecode/AVPlayerDemo/Introduction/Intro.html
 
   dispatch_queue_t queue = NULL;
-  if ([RNVVideoManager guardAudioSession]) {
+  if ([RNVVideoManager useBackgroundProgressQueue]) {
     // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
     // methods (e.g. currentDate) that may block on internal dispatch_sync without
     // stalling the main thread. This is safe because removePlayerTimeObserver
@@ -309,7 +309,7 @@ static int const RCTVideoUnset = -1;
     }
   };
 
-  if ([RNVVideoManager guardAudioSession]) {
+  if ([RNVVideoManager useBackgroundProgressQueue]) {
     // When on the background _progressQueue, dispatch back to main for event delivery.
     dispatch_async(dispatch_get_main_queue(), deliverProgress);
   } else {
@@ -1078,7 +1078,7 @@ static int const RCTVideoUnset = -1;
 
 - (void)configureAudio
 {
-    BOOL guard = [RNVVideoManager guardAudioSession];
+    BOOL guard = [RNVVideoManager optimizeConfigureAudio];
 
     // Muted videos don't need to touch the audio session.
     if (guard && _muted) return;

@@ -4,18 +4,35 @@
 #import <React/RCTUIManager.h>
 #import <AVFoundation/AVFoundation.h>
 
-static BOOL _guardAudioSession = NO;
+static BOOL _optimizeConfigureAudio = NO;
+static BOOL _useBackgroundProgressQueue = NO;
 
 @implementation RNVVideoManager
 
 RCT_EXPORT_MODULE(RNVVideo);
 
-+ (BOOL)guardAudioSession {
-    return _guardAudioSession;
++ (BOOL)optimizeConfigureAudio {
+    return _optimizeConfigureAudio;
 }
 
-RCT_EXPORT_METHOD(setGuardAudioSession:(BOOL)enabled) {
-    _guardAudioSession = enabled;
++ (void)setOptimizeConfigureAudio:(BOOL)optimizeConfigureAudio {
+    _optimizeConfigureAudio = optimizeConfigureAudio;
+}
+
++ (BOOL)useBackgroundProgressQueue {
+    return _useBackgroundProgressQueue;
+}
+
++ (void)setUseBackgroundProgressQueue:(BOOL)useBackgroundProgressQueue {
+    _useBackgroundProgressQueue = useBackgroundProgressQueue;
+}
+
+RCT_EXPORT_METHOD(setOptimizeConfigureAudio:(BOOL)enabled) {
+    _optimizeConfigureAudio = enabled;
+}
+
+RCT_EXPORT_METHOD(setUseBackgroundProgressQueue:(BOOL)enabled) {
+    _useBackgroundProgressQueue = enabled;
 }
 
 - (UIView *)view

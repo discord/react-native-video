@@ -3,6 +3,7 @@
 
 @interface RNVVideoManager : RCTViewManager <RCTBridgeModule>
 
-+ (BOOL)guardAudioSession;
+@property (class, nonatomic) BOOL optimizeConfigureAudio;
+@property (class, nonatomic) BOOL useBackgroundProgressQueue;
 
 @end
