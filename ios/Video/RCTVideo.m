@@ -1082,10 +1082,10 @@ static int const RCTVideoUnset = -1;
 
 - (void)configureAudio
 {
-    BOOL guard = [RNVVideoManager optimizeConfigureAudio];
+    BOOL optimize = [RNVVideoManager optimizeConfigureAudio];
 
     // Muted videos don't need to touch the audio session.
-    if (guard && _muted) return;
+    if (optimize && _muted) return;
 
     AVAudioSession *session = [AVAudioSession sharedInstance];
     AVAudioSessionCategory category = nil;
@@ -1130,16 +1130,16 @@ static int const RCTVideoUnset = -1;
 
       // Skip the setCategory XPC call if nothing would change. It can block the main thread
       // and cause playback stutter ... (we've seen this very specifically when the app is set to
-      // AVAudioSessionModeVoiceChat). This guard is preventative ... ideally we wouldn't have
+      // AVAudioSessionModeVoiceChat). This optimization is preventative ... ideally we wouldn't have
       // extra / excessive calls to this method at all, but such is life.
-      if (guard && [session.category isEqualToString:effectiveCategory] && session.categoryOptions == effectiveOptions) {
+      if (optimize && [session.category isEqualToString:effectiveCategory] && session.categoryOptions == effectiveOptions) {
         return;
       }
       [session setCategory:effectiveCategory withOptions:effectiveOptions error:nil];
       return;
     }
 
-    if (guard && [session.category isEqualToString:category]) {
+    if (optimize && [session.category isEqualToString:category]) {
       return;
     }
     [session setCategory:category error:nil];
