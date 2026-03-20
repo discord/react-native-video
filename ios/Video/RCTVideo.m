@@ -293,18 +293,22 @@ static int const RCTVideoUnset = -1;
   const Float64 duration = CMTimeGetSeconds(playerDuration);
   const Float64 currentTimeSecs = CMTimeGetSeconds(currentTime);
 
+  __weak RCTVideo *weakSelf = self;
   void (^deliverProgress)(void) = ^{
+    RCTVideo *strongSelf = weakSelf;
+    if (!strongSelf) return;
+
     [[NSNotificationCenter defaultCenter] postNotificationName:@"RCTVideo_progress" object:nil userInfo:@{@"progress": [NSNumber numberWithDouble: currentTimeSecs / duration]}];
 
-    if( currentTimeSecs >= 0 && self.onVideoProgress) {
-      self.onVideoProgress(@{
+    if (currentTimeSecs >= 0 && strongSelf.onVideoProgress) {
+      strongSelf.onVideoProgress(@{
                              @"currentTime": [NSNumber numberWithFloat:CMTimeGetSeconds(currentTime)],
-                             @"playableDuration": [self calculatePlayableDuration],
+                             @"playableDuration": [strongSelf calculatePlayableDuration],
                              @"atValue": [NSNumber numberWithLongLong:currentTime.value],
                              @"atTimescale": [NSNumber numberWithInt:currentTime.timescale],
                              @"currentPlaybackTime": [NSNumber numberWithLongLong:currentPlaybackTime ? [@(floor([currentPlaybackTime timeIntervalSince1970] * 1000)) longLongValue] : 0],
-                             @"target": self.reactTag,
-                             @"seekableDuration": [self calculateSeekableDuration],
+                             @"target": strongSelf.reactTag,
+                             @"seekableDuration": [strongSelf calculateSeekableDuration],
                              });
     }
   };
