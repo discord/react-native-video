@@ -250,6 +250,9 @@ class ReactExoplayerView extends FrameLayout implements
         if (!playInBackground || !isInBackground) {
             setPlayWhenReady(!isPaused);
         }
+        if (!playInBackground && player != null && exoPlayerView != null) {
+            exoPlayerView.setVideoView();
+        }
         isInBackground = false;
     }
 
@@ -266,6 +269,9 @@ class ReactExoplayerView extends FrameLayout implements
             } catch (Exception e) {
                 // Ignore stop errors
             }
+        }
+        if (exoPlayerView != null) {
+            exoPlayerView.clearVideoView();
         }
     }
 
