@@ -555,6 +555,9 @@ class ReactExoplayerView extends FrameLayout implements
             ReactExoplayerView self = this;
             player.removeListener(self);
             trackSelector = null;
+            if (exoPlayerView != null) {
+                exoPlayerView.setPlayer(null);
+            }
             player = null;
         }
         progressHandler.removeMessages(SHOW_PROGRESS);
