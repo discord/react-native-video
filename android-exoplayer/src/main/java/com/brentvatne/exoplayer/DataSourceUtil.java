@@ -1,5 +1,6 @@
 package com.brentvatne.exoplayer;
 
+import android.util.Log;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.modules.network.CookieJarContainer;
 import com.facebook.react.modules.network.ForwardingCookieHandler;
@@ -14,8 +15,11 @@ import com.google.android.exoplayer2.util.Util;
 import okhttp3.JavaNetCookieJar;
 import okhttp3.OkHttpClient;
 import java.util.Map;
+import java.util.function.Function;
 
 public class DataSourceUtil {
+
+    private static final String TAG = "DataSourceUtil";
 
     private DataSourceUtil() {
     }
@@ -23,6 +27,7 @@ public class DataSourceUtil {
     private static DataSource.Factory rawDataSourceFactory = null;
     private static DataSource.Factory defaultDataSourceFactory = null;
     private static HttpDataSource.Factory defaultHttpDataSourceFactory = null;
+    private static Function<String, DataSource.Factory> httpEngineFactoryResolver = null;
     private static String userAgent = null;
 
     public static void setUserAgent(String userAgent) {
@@ -47,6 +52,45 @@ public class DataSourceUtil {
         DataSourceUtil.rawDataSourceFactory = factory;
     }
 
+
+    public static void setHttpEngineFactoryResolver(Function<String, DataSource.Factory> resolver) {
+        httpEngineFactoryResolver = resolver;
+    }
+
+    public static DataSource.Factory getDataSourceFactory(ReactContext context, DefaultBandwidthMeter bandwidthMeter, Map<String, String> requestHeaders, String httpEngine) {
+        if (httpEngine != null && httpEngineFactoryResolver != null) {
+            DataSource.Factory factory = httpEngineFactoryResolver.apply(httpEngine);
+            if (factory != null) {
+                return factory;
+            }
+        }
+        return getDefaultDataSourceFactory(context, bandwidthMeter, requestHeaders);
+    }
+
+    /**
+     * Returns an HttpDataSource.Factory selected by the registered httpEngine resolver, or the
+     * default factory if no engine is selected, no resolver is registered, the resolver returns
+     * null, or the resolver returns a DataSource.Factory that does not implement
+     * HttpDataSource.Factory.
+     *
+     * The resolver registered via setHttpEngineFactoryResolver returns a generic DataSource.Factory.
+     * Most HTTP-backed engines (OkHttpDataSourceFactory, CronetDataSource.Factory) also implement
+     * HttpDataSource.Factory, so the typical case works. The instanceof guard protects against
+     * resolvers that return a non-HTTP-typed factory and logs a warning so host apps can detect
+     * the mismatch.
+     */
+    public static HttpDataSource.Factory getHttpDataSourceFactory(ReactContext context, DefaultBandwidthMeter bandwidthMeter, Map<String, String> requestHeaders, String httpEngine) {
+        if (httpEngine != null && httpEngineFactoryResolver != null) {
+            DataSource.Factory factory = httpEngineFactoryResolver.apply(httpEngine);
+            if (factory instanceof HttpDataSource.Factory) {
+                return (HttpDataSource.Factory) factory;
+            }
+            if (factory != null) {
+                Log.w(TAG, "httpEngineFactoryResolver returned a DataSource.Factory that does not implement HttpDataSource.Factory for engine '" + httpEngine + "'; falling back to default HttpDataSource.Factory");
+            }
+        }
+        return getDefaultHttpDataSourceFactory(context, bandwidthMeter, requestHeaders);
+    }
 
     public static DataSource.Factory getDefaultDataSourceFactory(ReactContext context, DefaultBandwidthMeter bandwidthMeter, Map<String, String> requestHeaders) {
         if (defaultDataSourceFactory == null || (requestHeaders != null && !requestHeaders.isEmpty())) {

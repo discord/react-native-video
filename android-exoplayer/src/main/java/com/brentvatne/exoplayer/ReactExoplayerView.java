@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.content.Context;
 import android.media.AudioManager;
 import android.net.Uri;
+
+import java.util.Objects;
 import android.os.Handler;
 import android.os.Message;
 import android.text.TextUtils;
@@ -149,6 +151,7 @@ class ReactExoplayerView extends FrameLayout implements
     private float mProgressUpdateInterval = 250.0f;
     private boolean playInBackground = false;
     private Map<String, String> requestHeaders;
+    private String httpEngine;
     private boolean mReportBandwidth = false;
     private UUID drmUUID = null;
     private String drmLicenseUrl = null;
@@ -647,8 +650,8 @@ class ReactExoplayerView extends FrameLayout implements
      * @return A new DataSource factory.
      */
     private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
-        return DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext,
-                useBandwidthMeter ? bandwidthMeter : null, requestHeaders);
+        return DataSourceUtil.getDataSourceFactory(this.themedReactContext,
+                useBandwidthMeter ? bandwidthMeter : null, requestHeaders, httpEngine);
     }
 
     /**
@@ -659,7 +662,8 @@ class ReactExoplayerView extends FrameLayout implements
      * @return A new HttpDataSource factory.
      */
     private HttpDataSource.Factory buildHttpDataSourceFactory(boolean useBandwidthMeter) {
-        return DataSourceUtil.getDefaultHttpDataSourceFactory(this.themedReactContext, useBandwidthMeter ? bandwidthMeter : null, requestHeaders);
+        return DataSourceUtil.getHttpDataSourceFactory(this.themedReactContext,
+                useBandwidthMeter ? bandwidthMeter : null, requestHeaders, httpEngine);
     }
 
 
@@ -1039,12 +1043,23 @@ class ReactExoplayerView extends FrameLayout implements
             this.extension = extension;
             this.requestHeaders = headers;
             this.mediaDataSourceFactory =
-                    DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext, bandwidthMeter,
-                            this.requestHeaders);
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            this.requestHeaders, this.httpEngine);
 
             if (!isSourceEqual) {
                 reloadSource();
             }
+        }
+    }
+
+    public void setHttpEngine(String httpEngine) {
+        boolean changed = !Objects.equals(this.httpEngine, httpEngine);
+        this.httpEngine = httpEngine;
+        if (changed && srcUri != null) {
+            this.mediaDataSourceFactory =
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            this.requestHeaders, this.httpEngine);
+            reloadSource();
         }
     }
 
