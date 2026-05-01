@@ -247,11 +247,11 @@ class ReactExoplayerView extends FrameLayout implements
 
     @Override
     public void onHostResume() {
-        if (!playInBackground || !isInBackground) {
-            setPlayWhenReady(!isPaused);
-        }
         if (!playInBackground && player != null && exoPlayerView != null) {
             exoPlayerView.setVideoView();
+            if (player.getPlaybackState() == Player.STATE_IDLE) {
+                restoreSourceAfterBackground();
+            }
         }
         isInBackground = false;
     }
@@ -265,7 +265,9 @@ class ReactExoplayerView extends FrameLayout implements
         setPlayWhenReady(false);
         if (player != null) {
             try {
+                updateResumePosition();
                 player.stop();
+                playerNeedsSource = true;
             } catch (Exception e) {
                 // Ignore stop errors
             }
@@ -469,6 +471,38 @@ class ReactExoplayerView extends FrameLayout implements
                 applyModifiers();
             }
         }, 1);
+    }
+
+    // Re-prepare the existing player after a background-induced player.stop() without
+    // firing loadStart/load events, so the JS state machine doesn't think this is a
+    // fresh load. Mirrors the prepare branch of initializePlayer().
+    private void restoreSourceAfterBackground() {
+        if (player == null || srcUri == null || !playerNeedsSource) {
+            return;
+        }
+        exoPlayerView.invalidateAspectRatio();
+
+        ArrayList<MediaSource> mediaSourceList = buildTextSources();
+        MediaSource videoSource = buildMediaSource(srcUri, extension);
+        MediaSource mediaSource;
+        if (mediaSourceList.size() == 0) {
+            mediaSource = videoSource;
+        } else {
+            mediaSourceList.add(0, videoSource);
+            MediaSource[] textSourceArray = mediaSourceList.toArray(
+                    new MediaSource[mediaSourceList.size()]
+            );
+            mediaSource = new MergingMediaSource(textSourceArray);
+        }
+
+        boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
+        if (haveResumePosition) {
+            player.seekTo(resumeWindow, resumePosition);
+        }
+        player.prepare(mediaSource, !haveResumePosition, false);
+        playerNeedsSource = false;
+
+        reLayout(exoPlayerView);
     }
 
     private MediaSource buildMediaSource(Uri uri, String overrideExtension) {
