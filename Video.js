@@ -474,6 +474,13 @@ Video.propTypes = {
   playWhenInactive: PropTypes.bool,
   ignoreSilentSwitch: PropTypes.oneOf(['ignore', 'obey']),
   reportBandwidth: PropTypes.bool,
+
+  /**
+   * Android only. Skip the audio focus request on play. Required when multiple
+   * <Video> instances need to play concurrently — even when muted, the default
+   * AUDIOFOCUS_GAIN request is denied for subsequent instances, leaving them
+   * silently paused at frame 0 with no onError.
+   */
   disableFocus: PropTypes.bool,
   controls: PropTypes.bool,
   audioOnly: PropTypes.bool,

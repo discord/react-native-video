@@ -600,8 +600,22 @@ class ReactExoplayerView extends FrameLayout implements
         bandwidthMeter.removeEventListener(this);
     }
 
+    /**
+     * Requests {@link AudioManager#AUDIOFOCUS_GAIN} on {@link AudioManager#STREAM_MUSIC} when this
+     * view may play audible media and participates in focus management.
+     * <p>
+     * Requesting focus while muted is contradictory: there is no audible output, yet
+     * {@code AUDIOFOCUS_GAIN} still participates in global focus semantics. Doing so used to be a
+     * footgun for consumers: several muted players would still contend for focus, so only one could
+     * preview or advance playback at a time. Skipping the {@link AudioManager} call when
+     * {@link #muted} avoids that.
+     *
+     * @return {@code true} if no system call was needed or if focus was granted; {@code false} if
+     *         a request was issued and denied.
+     */
     private boolean requestAudioFocus() {
-        if (disableFocus || srcUri == null || this.hasAudioFocus) {
+        // Skip AudioManager: focus disabled, muted, no source yet, or already focused.
+        if (disableFocus || muted || srcUri == null || this.hasAudioFocus) {
             return true;
         }
         int result = audioManager.requestAudioFocus(this,
@@ -1303,11 +1317,35 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     public void setMutedModifier(boolean muted) {
+        boolean wasMuted = this.muted;
         this.muted = muted;
         audioVolume = muted ? 0.f : 1.f;
-        if (player != null) {
-            player.setVolume(audioVolume);
+
+        if (player == null) {
+            // no player, nothing to do
+            return;
         }
+        
+        player.setVolume(audioVolume);
+
+        // No mute transition, playback not intended (playWhenReady), or focus disabled.
+        if (wasMuted == muted || !player.getPlayWhenReady() || disableFocus) {
+            return;
+        }
+
+        // Otherwise: mute changed during intended playback — sync focus with audible output.
+        if (muted && hasAudioFocus) {
+            // Muted: release focus so other apps can use it.
+            audioManager.abandonAudioFocus(this);
+            this.hasAudioFocus = false;
+            return;
+        }
+
+        if (!muted && !this.hasAudioFocus) {
+            // Unmuted: now we need focus.
+            this.hasAudioFocus = requestAudioFocus();
+        }
+        // Fallthrough — muted with no focus to abandon, or unmuted with focus already held.
     }
 
 
