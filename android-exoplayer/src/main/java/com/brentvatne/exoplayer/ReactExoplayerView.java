@@ -252,6 +252,10 @@ class ReactExoplayerView extends FrameLayout implements
             if (player.getPlaybackState() == Player.STATE_IDLE) {
                 restoreSourceAfterBackground();
             }
+            // Without this, playback stays paused after resume because onHostPause()
+            // set player.playWhenReady=false. setPlayWhenReady() flips it back on,
+            // and reacquires audio focus along the way (skipped when muted).
+            setPlayWhenReady(!isPaused);
         }
         isInBackground = false;
     }
