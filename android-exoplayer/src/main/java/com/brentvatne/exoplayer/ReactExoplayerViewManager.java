@@ -278,6 +278,11 @@ public class ReactExoplayerViewManager extends ViewGroupManager<ReactExoplayerVi
 
     @ReactProp(name = PROP_SEEK)
     public void setSeek(final ReactExoplayerView videoView, final float seek) {
+
+        // this dedupe was applied in PR #4 to handle Fabric firing spurious additional seeks
+        // however this logic is not entirely correct as seeking to the same time over and over simply won't work
+        // (e.g. seeking to time 0 more than once is not uncommon)
+        // upstream consumers have a workaround sitting on top of this dedupe until this gets a full fix. 
         if (seek != lastSeekPosition) {
             lastSeekPosition = seek;
             videoView.seekTo(Math.round(seek * 1000f));

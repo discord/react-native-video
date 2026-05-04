@@ -250,7 +250,14 @@ class ReactExoplayerView extends FrameLayout implements
 
     @Override
     public void onHostResume() {
-        if (!playInBackground || !isInBackground) {
+        if (!playInBackground && player != null && exoPlayerView != null) {
+            exoPlayerView.setVideoView();
+            if (player.getPlaybackState() == Player.STATE_IDLE) {
+                restoreSourceAfterBackground();
+            }
+            // Without this, playback stays paused after resume because onHostPause()
+            // set player.playWhenReady=false. setPlayWhenReady() flips it back on,
+            // and reacquires audio focus along the way (skipped when muted).
             setPlayWhenReady(!isPaused);
         }
         isInBackground = false;
@@ -265,10 +272,15 @@ class ReactExoplayerView extends FrameLayout implements
         setPlayWhenReady(false);
         if (player != null) {
             try {
+                updateResumePosition();
                 player.stop();
+                playerNeedsSource = true;
             } catch (Exception e) {
                 // Ignore stop errors
             }
+        }
+        if (exoPlayerView != null) {
+            exoPlayerView.clearVideoView();
         }
     }
 
@@ -468,6 +480,38 @@ class ReactExoplayerView extends FrameLayout implements
         }, 1);
     }
 
+    // Re-prepare the existing player after a background-induced player.stop() without
+    // firing loadStart/load events, so the JS state machine doesn't think this is a
+    // fresh load. Mirrors the prepare branch of initializePlayer().
+    private void restoreSourceAfterBackground() {
+        if (player == null || srcUri == null || !playerNeedsSource) {
+            return;
+        }
+        exoPlayerView.invalidateAspectRatio();
+
+        ArrayList<MediaSource> mediaSourceList = buildTextSources();
+        MediaSource videoSource = buildMediaSource(srcUri, extension);
+        MediaSource mediaSource;
+        if (mediaSourceList.size() == 0) {
+            mediaSource = videoSource;
+        } else {
+            mediaSourceList.add(0, videoSource);
+            MediaSource[] textSourceArray = mediaSourceList.toArray(
+                    new MediaSource[mediaSourceList.size()]
+            );
+            mediaSource = new MergingMediaSource(textSourceArray);
+        }
+
+        boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
+        if (haveResumePosition) {
+            player.seekTo(resumeWindow, resumePosition);
+        }
+        player.prepare(mediaSource, !haveResumePosition, false);
+        playerNeedsSource = false;
+
+        reLayout(exoPlayerView);
+    }
+
     private MediaSource buildMediaSource(Uri uri, String overrideExtension) {
         MediaItem mediaItem = (new MediaItem.Builder()).setUri(uri).build();
         int type = Util.inferContentType(!TextUtils.isEmpty(overrideExtension) ? "." + overrideExtension
@@ -552,6 +596,9 @@ class ReactExoplayerView extends FrameLayout implements
             ReactExoplayerView self = this;
             player.removeListener(self);
             trackSelector = null;
+            if (exoPlayerView != null) {
+                exoPlayerView.setPlayer(null);
+            }
             player = null;
         }
         progressHandler.removeMessages(SHOW_PROGRESS);
@@ -560,8 +607,22 @@ class ReactExoplayerView extends FrameLayout implements
         bandwidthMeter.removeEventListener(this);
     }
 
+    /**
+     * Requests {@link AudioManager#AUDIOFOCUS_GAIN} on {@link AudioManager#STREAM_MUSIC} when this
+     * view may play audible media and participates in focus management.
+     * <p>
+     * Requesting focus while muted is contradictory: there is no audible output, yet
+     * {@code AUDIOFOCUS_GAIN} still participates in global focus semantics. Doing so used to be a
+     * footgun for consumers: several muted players would still contend for focus, so only one could
+     * preview or advance playback at a time. Skipping the {@link AudioManager} call when
+     * {@link #muted} avoids that.
+     *
+     * @return {@code true} if no system call was needed or if focus was granted; {@code false} if
+     *         a request was issued and denied.
+     */
     private boolean requestAudioFocus() {
-        if (disableFocus || srcUri == null || this.hasAudioFocus) {
+        // Skip AudioManager: focus disabled, muted, no source yet, or already focused.
+        if (disableFocus || muted || srcUri == null || this.hasAudioFocus) {
             return true;
         }
         int result = audioManager.requestAudioFocus(this,
@@ -1275,11 +1336,35 @@ class ReactExoplayerView extends FrameLayout implements
     }
 
     public void setMutedModifier(boolean muted) {
+        boolean wasMuted = this.muted;
         this.muted = muted;
         audioVolume = muted ? 0.f : 1.f;
-        if (player != null) {
-            player.setVolume(audioVolume);
+
+        if (player == null) {
+            // no player, nothing to do
+            return;
         }
+        
+        player.setVolume(audioVolume);
+
+        // No mute transition, playback not intended (playWhenReady), or focus disabled.
+        if (wasMuted == muted || !player.getPlayWhenReady() || disableFocus) {
+            return;
+        }
+
+        // Otherwise: mute changed during intended playback — sync focus with audible output.
+        if (muted && hasAudioFocus) {
+            // Muted: release focus so other apps can use it.
+            audioManager.abandonAudioFocus(this);
+            this.hasAudioFocus = false;
+            return;
+        }
+
+        if (!muted && !this.hasAudioFocus) {
+            // Unmuted: now we need focus.
+            this.hasAudioFocus = requestAudioFocus();
+        }
+        // Fallthrough — muted with no focus to abandon, or unmuted with focus already held.
     }
 
 
