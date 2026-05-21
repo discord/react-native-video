@@ -245,10 +245,17 @@ static int const RCTVideoUnset = -1;
 - (void)dealloc
 {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
+  // Hold an explicit ref so the AVPlayer stays alive across the observer
+  // removal and queue drain, even if some path nilled _player concurrently.
+  // The local releases at scope end, on main (UIView dealloc runs on main),
+  // guaranteeing the AVPlayer is never released on _progressQueue.
+  AVPlayer *retainedPlayer = _player;
+  [self removePlayerTimeObserver];
   [self removePlayerLayer];
   [self removePlayerItemObservers];
   [_player removeObserver:self forKeyPath:playbackRate context:nil];
   [_player removeObserver:self forKeyPath:externalPlaybackActive context: nil];
+  (void)retainedPlayer;
 }
 
 #pragma mark - App lifecycle handlers
