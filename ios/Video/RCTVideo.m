@@ -200,8 +200,8 @@ static int const RCTVideoUnset = -1;
   if ([RNVVideoManager useBackgroundProgressQueue]) {
     // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
     // methods (e.g. currentDate) that may block on internal dispatch_sync without
-    // stalling the main thread. This is safe because removePlayerTimeObserver
-    // (called during teardown) guarantees no further callbacks after it returns.
+    // stalling the main thread. removePlayerTimeObserver drains this queue during
+    // teardown so no block can run against a released player.
     if (!_progressQueue) {
       _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
     }
@@ -221,6 +221,12 @@ static int const RCTVideoUnset = -1;
   {
     [_player removeTimeObserver:_timeObserver];
     _timeObserver = nil;
+    // removeTimeObserver: does not wait for blocks already dispatched to the
+    // observer queue. Drain the queue so any in-flight sendProgressUpdate
+    // completes before the caller releases _player.
+    if (_progressQueue) {
+      dispatch_sync(_progressQueue, ^{});
+    }
   }
 }
 
@@ -278,7 +284,12 @@ static int const RCTVideoUnset = -1;
 
 - (void)sendProgressUpdate
 {
-  AVPlayerItem *video = [_player currentItem];
+  // Strong snapshot so the player can't be released mid-call from another thread.
+  AVPlayer *player = self->_player;
+  if (player == nil) {
+    return;
+  }
+  AVPlayerItem *video = [player currentItem];
   if (video == nil || video.status != AVPlayerItemStatusReadyToPlay) {
     return;
   }
@@ -288,8 +299,8 @@ static int const RCTVideoUnset = -1;
     return;
   }
 
-  CMTime currentTime = _player.currentTime;
-  NSDate *currentPlaybackTime = _player.currentItem.currentDate;
+  CMTime currentTime = player.currentTime;
+  NSDate *currentPlaybackTime = player.currentItem.currentDate;
   const Float64 duration = CMTimeGetSeconds(playerDuration);
   const Float64 currentTimeSecs = CMTimeGetSeconds(currentTime);
 
@@ -1664,6 +1675,9 @@ static int const RCTVideoUnset = -1;
 - (void)removeFromSuperview
 {
   [_player pause];
+  // Must run before _player is released so [_player removeTimeObserver:] is
+  // effective and the progress queue can be drained while the player is alive.
+  [self removePlayerTimeObserver];
   if (_playbackRateObserverRegistered) {
     [_player removeObserver:self forKeyPath:playbackRate context:nil];
     _playbackRateObserverRegistered = NO;
@@ -1673,17 +1687,16 @@ static int const RCTVideoUnset = -1;
     _isExternalPlaybackActiveObserverRegistered = NO;
   }
   _player = nil;
-  
+
   [self removePlayerLayer];
-  
+
   [_playerViewController.contentOverlayView removeObserver:self forKeyPath:@"frame"];
   [_playerViewController removeObserver:self forKeyPath:readyForDisplayKeyPath];
   [_playerViewController.view removeFromSuperview];
   _playerViewController.rctDelegate = nil;
   _playerViewController.player = nil;
   _playerViewController = nil;
-  
-  [self removePlayerTimeObserver];
+
   [self removePlayerItemObservers];
   
   _eventDispatcher = nil;
