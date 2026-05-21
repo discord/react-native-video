@@ -208,10 +208,20 @@ static int const RCTVideoUnset = -1;
     queue = _progressQueue;
   }
   __weak RCTVideo *weakSelf = self;
+  // Weak-capture the player so the block can atomically load it via
+  // objc_loadWeakRetained. Strong ivar reads (self->_player) are not atomic
+  // w.r.t. concurrent release, so even a strong-local snapshot inside the
+  // block is racy. A weak load returns nil if the AVPlayer is being
+  // deallocated; otherwise it keeps the player alive for the call.
+  __weak AVPlayer *weakPlayer = _player;
   _timeObserver = [_player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(progressUpdateIntervalMS, NSEC_PER_SEC)
                                                         queue:queue
-                                                   usingBlock:^(CMTime time) { [weakSelf sendProgressUpdate]; }
-                   ];
+                                                   usingBlock:^(CMTime time) {
+    RCTVideo *strongSelf = weakSelf;
+    AVPlayer *strongPlayer = weakPlayer;
+    if (!strongSelf || !strongPlayer) return;
+    [strongSelf sendProgressUpdateForPlayer:strongPlayer];
+  }];
 }
 
 /* Cancels the previously registered time observer. */
@@ -282,13 +292,8 @@ static int const RCTVideoUnset = -1;
 
 #pragma mark - Progress
 
-- (void)sendProgressUpdate
+- (void)sendProgressUpdateForPlayer:(AVPlayer *)player
 {
-  // Strong snapshot so the player can't be released mid-call from another thread.
-  AVPlayer *player = self->_player;
-  if (player == nil) {
-    return;
-  }
   AVPlayerItem *video = [player currentItem];
   if (video == nil || video.status != AVPlayerItemStatusReadyToPlay) {
     return;
