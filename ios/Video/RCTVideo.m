@@ -17,6 +17,11 @@ static NSString *const externalPlaybackActive = @"externalPlaybackActive";
 
 static int const RCTVideoUnset = -1;
 
+// Identity key for _progressQueue. Use the address of the static itself as
+// both the key and the value so dispatch_get_specific returns a recognizable
+// sentinel when the current thread is executing on _progressQueue.
+static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey;
+
 #ifdef DEBUG
     #define DebugLog(...) NSLog(__VA_ARGS__)
 #else
@@ -204,9 +209,19 @@ static int const RCTVideoUnset = -1;
     // teardown so no block can run against a released player.
     if (!_progressQueue) {
       _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
+      // Tag the queue so removePlayerTimeObserver can detect re-entrant calls
+      // (which would deadlock the dispatch_sync drain) and skip the drain.
+      dispatch_queue_set_specific(_progressQueue, kProgressQueueSpecificKey,
+                                  (void *)kProgressQueueSpecificKey, NULL);
     }
     queue = _progressQueue;
   }
+  // Invariant: nothing dispatched onto _progressQueue may strong-capture self.
+  // The teardown path (removeFromSuperview/dealloc) calls dispatch_sync on
+  // _progressQueue, which would deadlock if dealloc itself landed on
+  // _progressQueue (i.e., the queue held the last strong ref to self). Today
+  // both the periodic observer block and the deliverProgress block use
+  // weakSelf; preserve that.
   __weak RCTVideo *weakSelf = self;
   // Weak-capture the player so the block can atomically load it via
   // objc_loadWeakRetained. Strong ivar reads (self->_player) are not atomic
@@ -233,8 +248,12 @@ static int const RCTVideoUnset = -1;
     _timeObserver = nil;
     // removeTimeObserver: does not wait for blocks already dispatched to the
     // observer queue. Drain the queue so any in-flight sendProgressUpdate
-    // completes before the caller releases _player.
-    if (_progressQueue) {
+    // completes before the caller releases _player. Skip the drain if we are
+    // already on _progressQueue (e.g., a notification handler delivered there
+    // somehow re-enters teardown) — dispatch_sync onto the current queue
+    // would self-deadlock.
+    if (_progressQueue &&
+        dispatch_get_specific(kProgressQueueSpecificKey) != kProgressQueueSpecificKey) {
       dispatch_sync(_progressQueue, ^{});
     }
   }
@@ -247,15 +266,18 @@ static int const RCTVideoUnset = -1;
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   // Hold an explicit ref so the AVPlayer stays alive across the observer
   // removal and queue drain, even if some path nilled _player concurrently.
-  // The local releases at scope end, on main (UIView dealloc runs on main),
-  // guaranteeing the AVPlayer is never released on _progressQueue.
-  AVPlayer *retainedPlayer = _player;
+  // NS_VALID_UNTIL_END_OF_SCOPE opts the local into precise lifetime — without
+  // it ARC may release the local after its last syntactic use, defeating the
+  // purpose. UIView dealloc conventionally runs on main, in which case the
+  // final release of the player also lands on main; if dealloc lands on a
+  // background thread the queue-specific guard in removePlayerTimeObserver
+  // still prevents a self-deadlock on the drain.
+  NS_VALID_UNTIL_END_OF_SCOPE AVPlayer *retainedPlayer = _player;
   [self removePlayerTimeObserver];
   [self removePlayerLayer];
   [self removePlayerItemObservers];
   [_player removeObserver:self forKeyPath:playbackRate context:nil];
   [_player removeObserver:self forKeyPath:externalPlaybackActive context: nil];
-  (void)retainedPlayer;
 }
 
 #pragma mark - App lifecycle handlers
