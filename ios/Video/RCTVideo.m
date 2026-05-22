@@ -17,9 +17,8 @@ static NSString *const externalPlaybackActive = @"externalPlaybackActive";
 
 static int const RCTVideoUnset = -1;
 
-// Identity key for _progressQueue. Use the address of the static itself as
-// both the key and the value so dispatch_get_specific returns a recognizable
-// sentinel when the current thread is executing on _progressQueue.
+// Self-referential sentinel: dispatch_get_specific returns this iff the
+// current thread is executing on _progressQueue.
 static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey;
 
 #ifdef DEBUG
@@ -203,31 +202,21 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
 
   dispatch_queue_t queue = NULL;
   if ([RNVVideoManager useBackgroundProgressQueue]) {
-    // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
-    // methods (e.g. currentDate) that may block on internal dispatch_sync without
-    // stalling the main thread. removePlayerTimeObserver drains this queue during
-    // teardown so no block can run against a released player.
+    // Off-main so sendProgressUpdate can call AVPlayer methods that
+    // dispatch_sync internally (e.g. currentDate) without stalling main.
     if (!_progressQueue) {
       _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
-      // Tag the queue so removePlayerTimeObserver can detect re-entrant calls
-      // (which would deadlock the dispatch_sync drain) and skip the drain.
       dispatch_queue_set_specific(_progressQueue, kProgressQueueSpecificKey,
                                   (void *)kProgressQueueSpecificKey, NULL);
     }
     queue = _progressQueue;
   }
-  // Invariant: nothing dispatched onto _progressQueue may strong-capture self.
-  // The teardown path (removeFromSuperview/dealloc) calls dispatch_sync on
-  // _progressQueue, which would deadlock if dealloc itself landed on
-  // _progressQueue (i.e., the queue held the last strong ref to self). Today
-  // both the periodic observer block and the deliverProgress block use
-  // weakSelf; preserve that.
+  // Invariant: blocks dispatched onto _progressQueue must not strong-capture
+  // self or _player. Teardown dispatch_syncs into _progressQueue to drain;
+  // a strong capture could land dealloc on the queue and self-deadlock.
+  // Weak _player additionally closes the non-atomic strong-ivar-read race
+  // against concurrent _player = nil on main.
   __weak RCTVideo *weakSelf = self;
-  // Weak-capture the player so the block can atomically load it via
-  // objc_loadWeakRetained. Strong ivar reads (self->_player) are not atomic
-  // w.r.t. concurrent release, so even a strong-local snapshot inside the
-  // block is racy. A weak load returns nil if the AVPlayer is being
-  // deallocated; otherwise it keeps the player alive for the call.
   __weak AVPlayer *weakPlayer = _player;
   _timeObserver = [_player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(progressUpdateIntervalMS, NSEC_PER_SEC)
                                                         queue:queue
@@ -246,12 +235,9 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
   {
     [_player removeTimeObserver:_timeObserver];
     _timeObserver = nil;
-    // removeTimeObserver: does not wait for blocks already dispatched to the
-    // observer queue. Drain the queue so any in-flight sendProgressUpdate
-    // completes before the caller releases _player. Skip the drain if we are
-    // already on _progressQueue (e.g., a notification handler delivered there
-    // somehow re-enters teardown) — dispatch_sync onto the current queue
-    // would self-deadlock.
+    // removeTimeObserver: doesn't wait for already-dispatched blocks; drain
+    // so an in-flight sendProgressUpdate can't outlive the caller releasing
+    // _player. Skip if re-entered from _progressQueue (would self-deadlock).
     if (_progressQueue &&
         dispatch_get_specific(kProgressQueueSpecificKey) != kProgressQueueSpecificKey) {
       dispatch_sync(_progressQueue, ^{});
@@ -264,14 +250,9 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
 - (void)dealloc
 {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
-  // Hold an explicit ref so the AVPlayer stays alive across the observer
-  // removal and queue drain, even if some path nilled _player concurrently.
-  // NS_VALID_UNTIL_END_OF_SCOPE opts the local into precise lifetime — without
-  // it ARC may release the local after its last syntactic use, defeating the
-  // purpose. UIView dealloc conventionally runs on main, in which case the
-  // final release of the player also lands on main; if dealloc lands on a
-  // background thread the queue-specific guard in removePlayerTimeObserver
-  // still prevents a self-deadlock on the drain.
+  // Keep the player alive across the observer removal and queue drain. ARC
+  // is allowed to release a __strong local after its last use, so precise
+  // lifetime is required — a trailing (void)x cast does not count as a use.
   NS_VALID_UNTIL_END_OF_SCOPE AVPlayer *retainedPlayer = _player;
   [self removePlayerTimeObserver];
   [self removePlayerLayer];
@@ -1709,8 +1690,7 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
 - (void)removeFromSuperview
 {
   [_player pause];
-  // Must run before _player is released so [_player removeTimeObserver:] is
-  // effective and the progress queue can be drained while the player is alive.
+  // Must precede _player = nil below; otherwise removeTimeObserver: is a no-op.
   [self removePlayerTimeObserver];
   if (_playbackRateObserverRegistered) {
     [_player removeObserver:self forKeyPath:playbackRate context:nil];
