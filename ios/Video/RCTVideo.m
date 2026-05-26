@@ -17,6 +17,10 @@ static NSString *const externalPlaybackActive = @"externalPlaybackActive";
 
 static int const RCTVideoUnset = -1;
 
+// Self-referential sentinel: dispatch_get_specific returns this iff the
+// current thread is executing on _progressQueue.
+static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey;
+
 #ifdef DEBUG
     #define DebugLog(...) NSLog(__VA_ARGS__)
 #else
@@ -198,20 +202,30 @@ static int const RCTVideoUnset = -1;
 
   dispatch_queue_t queue = NULL;
   if ([RNVVideoManager useBackgroundProgressQueue]) {
-    // Use a background queue so sendProgressUpdate can call AVPlayer/AVPlayerItem
-    // methods (e.g. currentDate) that may block on internal dispatch_sync without
-    // stalling the main thread. This is safe because removePlayerTimeObserver
-    // (called during teardown) guarantees no further callbacks after it returns.
+    // Off-main so sendProgressUpdate can call AVPlayer methods that
+    // dispatch_sync internally (e.g. currentDate) without stalling main.
     if (!_progressQueue) {
       _progressQueue = dispatch_queue_create("com.discord.react-native-video.progress", DISPATCH_QUEUE_SERIAL);
+      dispatch_queue_set_specific(_progressQueue, kProgressQueueSpecificKey,
+                                  (void *)kProgressQueueSpecificKey, NULL);
     }
     queue = _progressQueue;
   }
+  // Invariant: blocks dispatched onto _progressQueue must not strong-capture
+  // self or _player. Teardown dispatch_syncs into _progressQueue to drain;
+  // a strong capture could land dealloc on the queue and self-deadlock.
+  // Weak _player additionally closes the non-atomic strong-ivar-read race
+  // against concurrent _player = nil on main.
   __weak RCTVideo *weakSelf = self;
+  __weak AVPlayer *weakPlayer = _player;
   _timeObserver = [_player addPeriodicTimeObserverForInterval:CMTimeMakeWithSeconds(progressUpdateIntervalMS, NSEC_PER_SEC)
                                                         queue:queue
-                                                   usingBlock:^(CMTime time) { [weakSelf sendProgressUpdate]; }
-                   ];
+                                                   usingBlock:^(CMTime time) {
+    RCTVideo *strongSelf = weakSelf;
+    AVPlayer *strongPlayer = weakPlayer;
+    if (!strongSelf || !strongPlayer) return;
+    [strongSelf sendProgressUpdateForPlayer:strongPlayer];
+  }];
 }
 
 /* Cancels the previously registered time observer. */
@@ -221,6 +235,13 @@ static int const RCTVideoUnset = -1;
   {
     [_player removeTimeObserver:_timeObserver];
     _timeObserver = nil;
+    // removeTimeObserver: doesn't wait for already-dispatched blocks; drain
+    // so an in-flight sendProgressUpdate can't outlive the caller releasing
+    // _player. Skip if re-entered from _progressQueue (would self-deadlock).
+    if (_progressQueue &&
+        dispatch_get_specific(kProgressQueueSpecificKey) != kProgressQueueSpecificKey) {
+      dispatch_sync(_progressQueue, ^{});
+    }
   }
 }
 
@@ -229,6 +250,11 @@ static int const RCTVideoUnset = -1;
 - (void)dealloc
 {
   [[NSNotificationCenter defaultCenter] removeObserver:self];
+  // Keep the player alive across the observer removal and queue drain. ARC
+  // is allowed to release a __strong local after its last use, so precise
+  // lifetime is required — a trailing (void)x cast does not count as a use.
+  NS_VALID_UNTIL_END_OF_SCOPE AVPlayer *retainedPlayer = _player;
+  [self removePlayerTimeObserver];
   [self removePlayerLayer];
   [self removePlayerItemObservers];
   [_player removeObserver:self forKeyPath:playbackRate context:nil];
@@ -276,9 +302,9 @@ static int const RCTVideoUnset = -1;
 
 #pragma mark - Progress
 
-- (void)sendProgressUpdate
+- (void)sendProgressUpdateForPlayer:(AVPlayer *)player
 {
-  AVPlayerItem *video = [_player currentItem];
+  AVPlayerItem *video = [player currentItem];
   if (video == nil || video.status != AVPlayerItemStatusReadyToPlay) {
     return;
   }
@@ -288,8 +314,8 @@ static int const RCTVideoUnset = -1;
     return;
   }
 
-  CMTime currentTime = _player.currentTime;
-  NSDate *currentPlaybackTime = _player.currentItem.currentDate;
+  CMTime currentTime = player.currentTime;
+  NSDate *currentPlaybackTime = player.currentItem.currentDate;
   const Float64 duration = CMTimeGetSeconds(playerDuration);
   const Float64 currentTimeSecs = CMTimeGetSeconds(currentTime);
 
@@ -1664,6 +1690,8 @@ static int const RCTVideoUnset = -1;
 - (void)removeFromSuperview
 {
   [_player pause];
+  // Must precede _player = nil below; otherwise removeTimeObserver: is a no-op.
+  [self removePlayerTimeObserver];
   if (_playbackRateObserverRegistered) {
     [_player removeObserver:self forKeyPath:playbackRate context:nil];
     _playbackRateObserverRegistered = NO;
@@ -1673,17 +1701,16 @@ static int const RCTVideoUnset = -1;
     _isExternalPlaybackActiveObserverRegistered = NO;
   }
   _player = nil;
-  
+
   [self removePlayerLayer];
-  
+
   [_playerViewController.contentOverlayView removeObserver:self forKeyPath:@"frame"];
   [_playerViewController removeObserver:self forKeyPath:readyForDisplayKeyPath];
   [_playerViewController.view removeFromSuperview];
   _playerViewController.rctDelegate = nil;
   _playerViewController.player = nil;
   _playerViewController = nil;
-  
-  [self removePlayerTimeObserver];
+
   [self removePlayerItemObservers];
   
   _eventDispatcher = nil;
