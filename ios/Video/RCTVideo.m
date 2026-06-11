@@ -97,6 +97,7 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
   void (^__strong _Nonnull _restoreUserInterfaceForPIPStopCompletionHandler)(BOOL);
   AVPictureInPictureController *_pipController;
 #endif
+  id _audioRouteChangeObserver;
 }
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher
@@ -147,10 +148,20 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
                                                  name:UIApplicationWillEnterForegroundNotification
                                                object:nil];
     
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(audioRouteChanged:)
-                                                 name:AVAudioSessionRouteChangeNotification
-                                               object:nil];
+    // Block-based observer with a weak self: AVAudioSessionRouteChangeNotification
+    // is posted by the AudioSession framework via an async dispatch to the main
+    // queue, while this UIView's -dealloc is not guaranteed to run on main.
+    // A selector-based observer is held unsafe-unretained, so a route change in
+    // flight could call out to a freed RCTVideo (EXC_BAD_ACCESS). The center
+    // retains the block instead, and weakSelf resolves to nil once we're gone.
+    __weak __typeof(self) weakSelf = self;
+    _audioRouteChangeObserver =
+        [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionRouteChangeNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *note) {
+      [weakSelf audioRouteChanged:note];
+    }];
   }
   
   return self;
@@ -249,6 +260,10 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
 
 - (void)dealloc
 {
+  if (_audioRouteChangeObserver) {
+    [[NSNotificationCenter defaultCenter] removeObserver:_audioRouteChangeObserver];
+    _audioRouteChangeObserver = nil;
+  }
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   // Keep the player alive across the observer removal and queue drain. ARC
   // is allowed to release a __strong local after its last use, so precise
