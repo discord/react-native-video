@@ -148,12 +148,7 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
                                                  name:UIApplicationWillEnterForegroundNotification
                                                object:nil];
     
-    // Block-based observer with a weak self: AVAudioSessionRouteChangeNotification
-    // is posted by the AudioSession framework via an async dispatch to the main
-    // queue, while this UIView's -dealloc is not guaranteed to run on main.
-    // A selector-based observer is held unsafe-unretained, so a route change in
-    // flight could call out to a freed RCTVideo (EXC_BAD_ACCESS). The center
-    // retains the block instead, and weakSelf resolves to nil once we're gone.
+    // Block-based observer with a weak self avoids a use-after-free on a route change during teardown.
     __weak __typeof(self) weakSelf = self;
     _audioRouteChangeObserver =
         [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionRouteChangeNotification
