@@ -97,6 +97,7 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
   void (^__strong _Nonnull _restoreUserInterfaceForPIPStopCompletionHandler)(BOOL);
   AVPictureInPictureController *_pipController;
 #endif
+  id _audioRouteChangeObserver;
 }
 
 - (instancetype)initWithEventDispatcher:(RCTEventDispatcher *)eventDispatcher
@@ -147,10 +148,15 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
                                                  name:UIApplicationWillEnterForegroundNotification
                                                object:nil];
     
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(audioRouteChanged:)
-                                                 name:AVAudioSessionRouteChangeNotification
-                                               object:nil];
+    // Block-based observer with a weak self avoids a use-after-free on a route change during teardown.
+    __weak __typeof(self) weakSelf = self;
+    _audioRouteChangeObserver =
+        [[NSNotificationCenter defaultCenter] addObserverForName:AVAudioSessionRouteChangeNotification
+                                                          object:nil
+                                                           queue:[NSOperationQueue mainQueue]
+                                                      usingBlock:^(NSNotification *note) {
+      [weakSelf audioRouteChanged:note];
+    }];
   }
   
   return self;
@@ -249,6 +255,10 @@ static const void * const kProgressQueueSpecificKey = &kProgressQueueSpecificKey
 
 - (void)dealloc
 {
+  if (_audioRouteChangeObserver) {
+    [[NSNotificationCenter defaultCenter] removeObserver:_audioRouteChangeObserver];
+    _audioRouteChangeObserver = nil;
+  }
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   // Keep the player alive across the observer removal and queue drain. ARC
   // is allowed to release a __strong local after its last use, so precise
