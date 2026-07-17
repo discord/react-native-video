@@ -229,9 +229,13 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
         let progressUpdateIntervalMS: Float64 = _progressUpdateInterval / 1000
         // @see endScrubbing in AVPlayerDemoPlaybackViewController.m
         // of https://developer.apple.com/library/ios/samplecode/AVPlayerDemo/Introduction/Intro.html
+        // Discord: when the stutter-mitigation experiment enables it, observe progress on a
+        // background serial queue so AVPlayer calls that dispatch_sync internally don't stall main.
+        // Otherwise fall back to the default main-queue behavior (queue: nil).
+        let observerQueue: DispatchQueue? = RNVVideoModule.useBackgroundProgressQueue ? RNVVideoModule.progressQueue : nil
         _timeObserver = player?.addPeriodicTimeObserver(
             forInterval: CMTimeMakeWithSeconds(progressUpdateIntervalMS, preferredTimescale: Int32(NSEC_PER_SEC)),
-            queue: nil,
+            queue: observerQueue,
             using: _handlers.handleTimeUpdate
         )
     }

@@ -1,6 +1,7 @@
 package com.brentvatne.exoplayer
 
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.AssetDataSource
 import androidx.media3.datasource.DataSource
@@ -17,15 +18,71 @@ import okhttp3.Call
 import okhttp3.JavaNetCookieJar
 
 object DataSourceUtil {
+    private const val TAG = "DataSourceUtil"
     private var defaultDataSourceFactory: DataSource.Factory? = null
     private var defaultHttpDataSourceFactory: HttpDataSource.Factory? = null
     private var userAgent: String? = null
+
+    // Discord: resolver registered by the host app to select an HTTP data source engine
+    // (e.g. OkHttp, Cronet) by name. Kept here to avoid a circular Gradle dependency between
+    // react-native-video and the host app's media_player library.
+    private var httpEngineFactoryResolver: ((String) -> DataSource.Factory?)? = null
 
     private fun getUserAgent(context: ReactContext): String {
         if (userAgent == null) {
             userAgent = Util.getUserAgent(context, context.packageName)
         }
         return userAgent as String
+    }
+
+    // Discord: register/replace the HTTP engine resolver. Passing null clears it.
+    @JvmStatic
+    fun setHttpEngineFactoryResolver(resolver: ((String) -> DataSource.Factory?)?) {
+        httpEngineFactoryResolver = resolver
+    }
+
+    // Discord: generic DataSource.Factory selected by the registered httpEngine resolver, falling
+    // back to the default factory when no engine is selected / no resolver / resolver returns null.
+    @JvmStatic
+    fun getDataSourceFactory(
+        context: ReactContext,
+        bandwidthMeter: DefaultBandwidthMeter?,
+        requestHeaders: Map<String, String>?,
+        httpEngine: String?
+    ): DataSource.Factory {
+        if (httpEngine != null) {
+            val factory = httpEngineFactoryResolver?.invoke(httpEngine)
+            if (factory != null) {
+                return factory
+            }
+        }
+        return getDefaultDataSourceFactory(context, bandwidthMeter, requestHeaders)
+    }
+
+    // Discord: typed HttpDataSource.Factory sibling of getDataSourceFactory. Guards with an
+    // instanceof check and falls back (with a warning) when the resolver returns a factory that
+    // is not an HttpDataSource.Factory.
+    @JvmStatic
+    fun getHttpDataSourceFactory(
+        context: ReactContext,
+        bandwidthMeter: DefaultBandwidthMeter?,
+        requestHeaders: Map<String, String>?,
+        httpEngine: String?
+    ): HttpDataSource.Factory {
+        if (httpEngine != null) {
+            val factory = httpEngineFactoryResolver?.invoke(httpEngine)
+            if (factory is HttpDataSource.Factory) {
+                return factory
+            }
+            if (factory != null) {
+                Log.w(
+                    TAG,
+                    "httpEngineFactoryResolver returned a DataSource.Factory that does not implement " +
+                        "HttpDataSource.Factory for engine '$httpEngine'; falling back to default HttpDataSource.Factory"
+                )
+            }
+        }
+        return getDefaultHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
     }
 
     @JvmStatic

@@ -335,6 +335,7 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
   controls?: boolean;
   currentPlaybackTime?: number; // Android
   disableFocus?: boolean;
+  httpEngine?: 'default' | 'okhttp' | 'cronet'; // Discord, Android: selects the HTTP data source engine
   disableDisconnectError?: boolean; // Android
   filter?: EnumValues<FilterType>; // iOS
   filterEnabled?: boolean; // iOS

@@ -339,6 +339,7 @@ export interface VideoNativeProps extends ViewProps {
   src?: VideoSrc;
   allowsExternalPlayback?: boolean; // ios, true
   disableFocus?: boolean; // android
+  httpEngine?: WithDefault<string, 'default'>; // Discord, android: 'default' | 'okhttp' | 'cronet'
   maxBitRate?: Float;
   resizeMode?: WithDefault<string, 'none'>;
   repeat?: boolean;

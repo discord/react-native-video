@@ -190,6 +190,9 @@ public class ReactExoplayerView extends FrameLayout implements
     private ImaServerSideAdInsertionMediaSource.AdsLoader daiAdsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
+    // Discord: selects the HTTP data source engine (default/okhttp/cronet) via the resolver
+    // registered in DataSourceUtil. null means use the default factory.
+    private String httpEngine;
     private ExoPlayer player;
     private DefaultTrackSelector trackSelector;
     private boolean playerNeedsSource;
@@ -1384,8 +1387,8 @@ public class ReactExoplayerView extends FrameLayout implements
      * @return A new DataSource factory.
      */
     private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
-        return DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext,
-                useBandwidthMeter ? bandwidthMeter : null, source.getHeaders());
+        return DataSourceUtil.getDataSourceFactory(this.themedReactContext,
+                useBandwidthMeter ? bandwidthMeter : null, source.getHeaders(), httpEngine);
     }
 
     /**
@@ -1396,7 +1399,8 @@ public class ReactExoplayerView extends FrameLayout implements
      * @return A new HttpDataSource factory.
      */
     private HttpDataSource.Factory buildHttpDataSourceFactory(boolean useBandwidthMeter) {
-        return DataSourceUtil.getDefaultHttpDataSourceFactory(this.themedReactContext, useBandwidthMeter ? bandwidthMeter : null, source.getHeaders());
+        return DataSourceUtil.getHttpDataSourceFactory(this.themedReactContext,
+                useBandwidthMeter ? bandwidthMeter : null, source.getHeaders(), httpEngine);
     }
 
     // AudioBecomingNoisyListener implementation
@@ -2044,8 +2048,8 @@ public class ReactExoplayerView extends FrameLayout implements
             hasDrmFailed = false;
             this.source = source;
             final DataSource.Factory tmpMediaDataSourceFactory =
-                    DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext, bandwidthMeter,
-                            source.getHeaders());
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            source.getHeaders(), httpEngine);
 
             @Nullable
             final DataSource.Factory overriddenMediaDataSourceFactory = ReactNativeVideoManager.Companion.getInstance().overrideMediaDataSourceFactory(source, tmpMediaDataSourceFactory);
@@ -2080,6 +2084,20 @@ public class ReactExoplayerView extends FrameLayout implements
         this.source = new Source();
         this.mediaDataSourceFactory = null;
         clearResumePosition();
+    }
+
+    // Discord: select the HTTP data source engine (default/okhttp/cronet). When the engine changes
+    // for an active source, rebuild the data source factory and reload so the new engine takes effect.
+    public void setHttpEngine(String httpEngine) {
+        boolean changed = !Objects.equals(this.httpEngine, httpEngine);
+        this.httpEngine = httpEngine;
+        if (changed && source.getUri() != null) {
+            this.mediaDataSourceFactory =
+                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            source.getHeaders(), this.httpEngine);
+            playerNeedsSource = true;
+            initializePlayer();
+        }
     }
 
     public void setProgressUpdateInterval(final float progressUpdateInterval) {
