@@ -129,11 +129,25 @@ class VideoPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVP
     }
     
     // 500ms interval TODO: Make this configurable
+    // Discord: when the stutter-mitigation experiment enables it, observe progress on a
+    // background serial queue so AVPlayer calls that dispatch_sync internally don't stall main.
     let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-    playerProgressPeriodicObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
+    let observerQueue: DispatchQueue = RNVVideoModule.useBackgroundProgressQueue
+      ? RNVVideoModule.progressQueue
+      : .main
+    playerProgressPeriodicObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: observerQueue) { [weak self] _ in
       guard let self, let player = self.player, let delegate = self.delegate else { return }
-      
-      delegate.onProgressUpdate(currentTime: player.currentTime().seconds, bufferDuration: player.currentItem?.getbufferDuration() ?? 0)
+
+      let currentTime = player.currentTime().seconds
+      let bufferDuration = player.currentItem?.getbufferDuration() ?? 0
+
+      if RNVVideoModule.useBackgroundProgressQueue && !Thread.isMainThread {
+        DispatchQueue.main.async {
+          delegate.onProgressUpdate(currentTime: currentTime, bufferDuration: bufferDuration)
+        }
+      } else {
+        delegate.onProgressUpdate(currentTime: currentTime, bufferDuration: bufferDuration)
+      }
     }
   }
   

@@ -30,3 +30,23 @@ export type {
   VideoViewRef,
 } from './core/video-view/VideoViewProps';
 export { setAudioSessionManagementDisabled } from './core/utils/playerFactory';
+
+// Discord: v5/v6-compatible default export so existing call sites keep working.
+export { default } from './compat/Video';
+export { default as Video } from './compat/Video';
+export type { VideoProperties, VideoRef } from './compat/Video';
+export type {
+  HttpEngine,
+  LoadError,
+  MixWithOthers,
+  OnBandwidthUpdateData,
+  OnBufferData,
+  OnDownloadProgressData,
+  OnExternalPlaybackChangeData,
+  OnLoadData,
+  OnPictureInPictureStatusData,
+  OnPlaybackRateData,
+  OnProgressData,
+  OnSeekData,
+} from './compat/legacyTypes';
+export { DISCORD_HTTP_ENGINE_HEADER } from './compat/legacyTypes';
