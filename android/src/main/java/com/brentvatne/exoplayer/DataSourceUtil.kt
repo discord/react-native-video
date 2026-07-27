@@ -93,6 +93,13 @@ object DataSourceUtil {
         return defaultDataSourceFactory as DataSource.Factory
     }
 
+    // Discord: host apps (e.g. media_player) register a shared CacheDataSource.Factory so RNV and
+    // the native portal player reuse the same SimpleCache instance.
+    @JvmStatic
+    fun setDefaultDataSourceFactory(factory: DataSource.Factory?) {
+        defaultDataSourceFactory = factory
+    }
+
     @JvmStatic
     fun getDefaultHttpDataSourceFactory(
         context: ReactContext,
@@ -103,6 +110,11 @@ object DataSourceUtil {
             defaultHttpDataSourceFactory = buildHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
         }
         return defaultHttpDataSourceFactory as HttpDataSource.Factory
+    }
+
+    @JvmStatic
+    fun setDefaultHttpDataSourceFactory(factory: HttpDataSource.Factory?) {
+        defaultHttpDataSourceFactory = factory
     }
 
     private fun buildDataSourceFactory(
