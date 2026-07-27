@@ -1,5 +1,5 @@
 import AVFoundation
-import React
+import React_Core
 
 @objc(RCTVideoManager)
 class RCTVideoManager: RCTViewManager {

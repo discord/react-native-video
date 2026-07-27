@@ -4,7 +4,7 @@ import Foundation
 #if USE_GOOGLE_IMA
     import GoogleInteractiveMediaAds
 #endif
-import React
+import React_Core
 
 // MARK: - RCTVideo
 

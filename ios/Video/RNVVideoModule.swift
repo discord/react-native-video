@@ -1,5 +1,5 @@
 import Foundation
-import React
+import React_Core
 
 /// Discord: native module exposing stutter-mitigation experiment toggles.
 ///
