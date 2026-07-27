@@ -99,7 +99,7 @@ public class ReactNativeVideoManager: RNVPlugin {
     }
 
     func maybeUnregisterAVPlayerPlugin(plugin: RNVPlugin) {
-        guard let avpPlugin = plugin as? RNVAVPlayerPlugin else {
+        guard plugin is RNVAVPlayerPlugin else {
             return
         }
 
