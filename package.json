@@ -2,7 +2,7 @@
     "name": "react-native-video",
     "version": "6.19.2",
     "description": "A <Video /> element for react-native",
-    "main": "lib/index",
+    "main": "src/index",
     "source": "src/index.ts",
     "react-native": "src/index",
     "license": "MIT",
@@ -41,7 +41,7 @@
     "scripts": {
         "lint": "yarn eslint .",
         "build": "yarn tsc",
-        "prepare": "yarn build",
+        "prepare": "echo \"skip prepare for discord tarball install\"",
         "xbasic": "yarn --cwd examples/basic",
         "docs": "yarn --cwd docs build",
         "docs:llms": "node scripts/generate-llms.js",
@@ -68,5 +68,6 @@
         "!**/*.tsbuildinfo",
         "!docs",
         "!examples"
-    ]
+    ],
+    "types": "src/index.ts"
 }
