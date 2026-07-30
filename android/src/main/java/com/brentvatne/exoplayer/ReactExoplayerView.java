@@ -377,7 +377,11 @@ public class ReactExoplayerView extends FrameLayout implements
     @Override
     public void onHostResume() {
         if (!playInBackground || !isInBackground) {
-            setPlayWhenReady(!isPaused);
+            if (!isPaused) {
+                resumePlayback();
+            } else {
+                setPlayWhenReady(false);
+            }
         }
         isInBackground = false;
     }
@@ -395,6 +399,8 @@ public class ReactExoplayerView extends FrameLayout implements
         // Discord: stop on background to release MediaCodec resources (quest bar / multi-preview).
         if (player != null) {
             try {
+                // Preserve position so foreground resume can re-prepare and continue.
+                updateResumePosition();
                 player.stop();
             } catch (Exception e) {
                 // Ignore stop errors
@@ -1358,6 +1364,14 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private void resumePlayback() {
         if (player != null) {
+            // Discord: stop-on-background leaves ExoPlayer IDLE; re-prepare before resuming.
+            if (player.getPlaybackState() == Player.STATE_IDLE) {
+                playerNeedsSource = true;
+                initializePlayer();
+                setPlayWhenReady(true);
+                setKeepScreenOn(preventsDisplaySleepDuringVideoPlayback);
+                return;
+            }
             if (!player.getPlayWhenReady()) {
                 setPlayWhenReady(true);
             }
