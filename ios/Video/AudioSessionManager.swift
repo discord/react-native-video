@@ -56,8 +56,11 @@ class AudioSessionManager {
             return
         }
 
+        // Track only — do not configure here. Init runs before JS props (muted,
+        // mixWithOthers, disableAudioSessionManagement). Configuring .playback at
+        // register interrupted other apps (YouTube PiP) for muted decorative mounts.
+        // Session updates are driven by playerPropertiesChanged / playback.
         videoViews.add(view)
-        updateAudioSessionConfiguration()
     }
 
     func unregisterView(view: RCTVideo) {
@@ -79,25 +82,21 @@ class AudioSessionManager {
         }
 
         // Only unmuted, actively playing players (or remote-control) should touch
-        // AVAudioSession. Muted decorative loops still call registerView from init,
-        // before JS props like muted / disableAudioSessionManagement apply.
-        // Calling setCategory(.playback) in that case interrupts other apps
-        // (YouTube PiP, Spotify) even though activate is already gated on unmuted play.
-        //
-        // Discord 5.2.1 skipped configureAudio for muted views when
-        // optimizeConfigureAudio was on. v6 centralized session work here but
-        // always called configureAudioSession() on register — restoring the mute
-        // skip as default (not experiment-gated).
-        let isAnyUnmutedPlayerPlaying = videoViews.allObjects.contains { view in
-            return !view.isMuted() && view._player != nil && view._player?.rate != 0
-        }
-
-        if !isAnyUnmutedPlayerPlaying && !remoteControlEventsActive {
+        // AVAudioSession. setCategory(.playback) interrupts other apps even when
+        // we never activate. Discord 5.2.1 skipped configureAudio for muted views
+        // via optimizeConfigureAudio; that mute skip is now the default here.
+        guard hasUnmutedPlayingPlayer() || remoteControlEventsActive else {
             return
         }
 
         activateAudioSession()
         configureAudioSession()
+    }
+
+    private func hasUnmutedPlayingPlayer() -> Bool {
+        return videoViews.allObjects.contains { view in
+            return !view.isMuted() && view._player != nil && view._player?.rate != 0
+        }
     }
 
     /// Handle remote control events from NowPlayingInfoCenterManager
@@ -166,9 +165,7 @@ class AudioSessionManager {
             return view._playInBackground
         }
 
-        let anyPlayerPlaying = videoViews.allObjects.contains { view in
-            return !view.isMuted() && view._player != nil && view._player?.rate != 0
-        }
+        let anyPlayerPlaying = hasUnmutedPlayingPlayer()
 
         let anyPlayerWantsMixing = videoViews.allObjects.contains { view in
             return view._mixWithOthers == "mix" || view._mixWithOthers == "duck"

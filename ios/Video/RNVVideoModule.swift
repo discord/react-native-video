@@ -7,10 +7,9 @@ import React_Core
 /// `NativeExperimentBridgeManager`) gated behind the video stutter mitigation experiment.
 ///
 /// - `optimizeConfigureAudio`: legacy toggle from the 5.2.1 fork that skipped audio session
-///   configuration for muted videos. On v6, `AudioSessionManager` always skips `setCategory`
-///   when no unmuted player is actively playing (the old mute skip is now default — activation
-///   alone was not enough; registerView still configured `.playback` and interrupted PiP).
-///   This flag is retained for JS API compatibility (`setOptimizeConfigureAudio`).
+///   configuration for muted videos. On v6, `AudioSessionManager` skips `setCategory` unless an
+///   unmuted player is actively playing, and does not configure on `registerView` (props arrive
+///   later). The mute skip is default — this flag remains for JS API compatibility.
 /// - `useBackgroundProgressQueue`: runs the periodic progress time observer on a background
 ///   serial queue so `sendProgressUpdate` can call AVPlayer APIs that `dispatch_sync` internally
 ///   (e.g. `currentDate`) without stalling the main thread. Event delivery is marshalled back to

@@ -947,6 +947,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setMuted(_ muted: Bool) {
         _muted = muted
+        // Notify even if applyModifiers early-returns (item not readyToPlay yet).
+        // AudioSessionManager keys off isMuted() for whether to touch AVAudioSession.
+        AudioSessionManager.shared.playerPropertiesChanged(view: self)
         applyModifiers()
     }
 
