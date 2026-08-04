@@ -127,8 +127,15 @@ class AudioSessionManager {
     /// Notification that a player's properties have changed
     func playerPropertiesChanged(view: RCTVideo) {
         // Only update if this is a registered view
-        if videoViews.contains(view) {
-            updateAudioSessionConfiguration()
+        guard videoViews.contains(view) else {
+            return
+        }
+
+        // Coalesce updates from the same RN prop pass. `paused` is often applied
+        // before `muted`; configuring synchronously on pause→play would see the
+        // default unmute and call setCategory(.playback), killing YouTube PiP.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateAudioSessionConfiguration()
         }
     }
 

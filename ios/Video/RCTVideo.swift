@@ -36,7 +36,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     private var _maxBitRate: Float?
 
     private var _automaticallyWaitsToMinimizeStalling = true
-    private var _muted = false
+    private var _muted = true
     private var _paused = false
     private var _repeat = false
     private var _isPlaying = false
@@ -872,6 +872,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 _player?.rate = 0.0
             }
         } else {
+            // Ensure mute is applied before play. RN may deliver `paused` before `muted`
+            // in the same update (see RCTVideoManager export order); playing unmuted
+            // even briefly lets AVPlayer activate the audio session and interrupt PiP.
+            _player?.isMuted = _muted
+            if _muted, !_controls {
+                _player?.volume = 0
+            }
+
             if _adPlaying {
                 #if USE_GOOGLE_IMA
                     _imaAdsManager.getAdsManager()?.resume()
