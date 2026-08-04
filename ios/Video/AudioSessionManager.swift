@@ -83,20 +83,17 @@ class AudioSessionManager {
             return
         }
 
-        // Muted-only mounts must not touch AVAudioSession (YouTube PiP / Spotify).
-        guard hasUnmutedPlayingPlayer() else {
+        // Muted-only mounts must not call setCategory(.playback) (YouTube PiP / Spotify).
+        // Unmuted "inherit" is handled in-app via disableAudioSessionManagement.
+        let isAnyPlayerPlaying = videoViews.allObjects.contains { view in
+            return !view.isMuted() && view._player != nil && view._player?.rate != 0
+        }
+        guard isAnyPlayerPlaying else {
             return
         }
 
-        // configureAudioSession is a no-op when mixWithOthers/ignoreSilentSwitch are
-        // both "inherit" (v5 parity) — see that method.
+        activateAudioSession()
         configureAudioSession()
-    }
-
-    private func hasUnmutedPlayingPlayer() -> Bool {
-        return videoViews.allObjects.contains { view in
-            return !view.isMuted() && view._player != nil && view._player?.rate != 0
-        }
     }
 
     /// Handle remote control events from NowPlayingInfoCenterManager
@@ -152,105 +149,93 @@ class AudioSessionManager {
         }
     }
 
-    /// Mirrors v5 `configureAudio`: only call `setCategory` when category and/or options
-    /// are explicitly chosen. Both props `"inherit"` (and no PiP/background/earpiece/
-    /// notification needs) is a no-op so background music can continue.
     private func configureAudioSession() {
-        if isAudioSessionManagementDisabled {
-            return
-        }
-
         let audioSession = AVAudioSession.sharedInstance()
+        var options: AVAudioSession.CategoryOptions = []
 
+        // Check player properties
         let anyPlayerShowNotificationControls = videoViews.allObjects.contains { view in
             return view._showNotificationControls
         }
+
         let anyPlayerNeedsPiP = videoViews.allObjects.contains { view in
             return view.isPictureInPictureActive()
         }
+
         let anyPlayerNeedsBackgroundPlayback = videoViews.allObjects.contains { view in
             return view._playInBackground
         }
+
+        let anyPlayerPlaying = videoViews.allObjects.contains { view in
+            return !view.isMuted() && view._player != nil && view._player?.rate != 0
+        }
+
+        let anyPlayerWantsMixing = videoViews.allObjects.contains { view in
+            return view._mixWithOthers == "mix" || view._mixWithOthers == "duck"
+        }
+
+        let canAllowMixing = anyPlayerWantsMixing || (!anyPlayerShowNotificationControls && !anyPlayerNeedsBackgroundPlayback)
+
+        if isAudioSessionManagementDisabled {
+            // AUDIO SESSION MANAGEMENT DISABLED BY USER
+            return
+        }
+
+        if !anyPlayerPlaying {
+            options.insert(.mixWithOthers)
+        } else if canAllowMixing {
+            let shouldEnableMixing = videoViews.allObjects.contains { view in
+                return view._mixWithOthers == "mix"
+            }
+
+            let shouldEnableDucking = videoViews.allObjects.contains { view in
+                return view._mixWithOthers == "duck"
+            }
+
+            if shouldEnableMixing && shouldEnableDucking {
+                print(
+                    "Warning: Conflicting mixWithOthers settings found (mix vs duck) - defaulting to mix"
+                )
+                options.insert(.mixWithOthers)
+            } else {
+                if shouldEnableMixing {
+                    options.insert(.mixWithOthers)
+                }
+
+                if shouldEnableDucking {
+                    options.insert(.duckOthers)
+                }
+            }
+        }
+
         let isAnyPlayerUsingEarpiece = videoViews.allObjects.contains { view in
             return view._audioOutput == "earpiece"
         }
+
         let isSilentSwitchIgnore = videoViews.allObjects.contains { view in
             return view._ignoreSilentSwitch == "ignore"
         }
+
         let isSilentSwitchObey = videoViews.allObjects.contains { view in
             return view._ignoreSilentSwitch == "obey"
         }
 
-        // Category: nil while ignoreSilentSwitch is inherit (v5).
-        var category: AVAudioSession.Category?
-        if isSilentSwitchIgnore && isSilentSwitchObey {
-            print(
-                "Warning: Conflicting ignoreSilentSwitch settings found (obey vs ignore) - defaulting to ignore"
-            )
-            category = .playback
-        } else if isSilentSwitchIgnore {
-            category = .playback
-        } else if isSilentSwitchObey {
-            category = .ambient
-        }
-
-        // v6 features that require an explicit category even when silent switch is inherit.
-        if anyPlayerNeedsPiP || anyPlayerNeedsBackgroundPlayback || anyPlayerShowNotificationControls {
-            if isSilentSwitchObey {
-                print(
-                    "Warning: ignoreSilentSwitch=obey cannot be used with PiP, backgroundPlayback, or notification controls - using playback category"
-                )
-            }
-            if isAnyPlayerUsingEarpiece {
-                print(
-                    "Warning: audioOutput=earpiece cannot be used with PiP, backgroundPlayback, or notification controls - using playback category"
-                )
-            }
-            category = .playback
-        } else if isAnyPlayerUsingEarpiece {
-            if isSilentSwitchObey {
-                print(
-                    "Warning: audioOutput=earpiece cannot be used with ignoreSilentSwitch=obey - using playAndRecord category"
-                )
-            }
-            category = .playAndRecord
-        }
-
-        // Options: unset while mixWithOthers is inherit (v5).
-        var options: AVAudioSession.CategoryOptions?
-        let shouldEnableMixing = videoViews.allObjects.contains { view in
-            return view._mixWithOthers == "mix"
-        }
-        let shouldEnableDucking = videoViews.allObjects.contains { view in
-            return view._mixWithOthers == "duck"
-        }
-        if shouldEnableMixing && shouldEnableDucking {
-            print(
-                "Warning: Conflicting mixWithOthers settings found (mix vs duck) - defaulting to mix"
-            )
-            options = .mixWithOthers
-        } else if shouldEnableMixing {
-            options = .mixWithOthers
-        } else if shouldEnableDucking {
-            options = .duckOthers
-        }
-
-        // inherit + inherit (and no forced category above) → leave AVAudioSession alone.
-        guard category != nil || options != nil else {
-            return
-        }
+        // Determine audio category based on player requirements
+        let category = determineAudioCategory(
+            silentSwitchObey: isSilentSwitchObey,
+            silentSwitchIgnore: isSilentSwitchIgnore,
+            earpiece: isAnyPlayerUsingEarpiece,
+            pip: anyPlayerNeedsPiP,
+            backgroundPlayback: anyPlayerNeedsBackgroundPlayback,
+            notificationControls: anyPlayerShowNotificationControls
+        )
 
         do {
-            if let category, let options {
-                try audioSession.setCategory(category, mode: .moviePlayback, options: options)
-            } else if let category {
-                try audioSession.setCategory(category, mode: .moviePlayback)
-            } else if let options {
-                try audioSession.setCategory(audioSession.category, mode: .moviePlayback, options: options)
-            }
+            try audioSession.setCategory(
+                category, mode: .moviePlayback, options: options
+            )
 
-            activateAudioSession()
-
+            // Configure audio port
             if isAnyPlayerUsingEarpiece, audioSession.category == .playAndRecord {
                 #if os(iOS) || os(visionOS)
                     try audioSession.overrideOutputAudioPort(.speaker)
@@ -261,6 +246,58 @@ class AudioSessionManager {
         } catch {
             print("Failed to configure audio session: \(error.localizedDescription)")
         }
+    }
+
+    private func determineAudioCategory(
+        silentSwitchObey: Bool,
+        silentSwitchIgnore: Bool,
+        earpiece: Bool,
+        pip: Bool,
+        backgroundPlayback: Bool,
+        notificationControls: Bool
+    ) -> AVAudioSession.Category {
+        // Handle conflicting settings
+        if silentSwitchObey && silentSwitchIgnore {
+            print(
+                "Warning: Conflicting ignoreSilentSwitch settings found (obey vs ignore) - defaulting to ignore"
+            )
+            return .playback
+        }
+
+        // PiP, background playback, or notification controls require playback category
+        if pip || backgroundPlayback || notificationControls || remoteControlEventsActive {
+            if silentSwitchObey {
+                print(
+                    "Warning: ignoreSilentSwitch=obey cannot be used with PiP, backgroundPlayback, or notification controls - using playback category"
+                )
+            }
+
+            if earpiece {
+                print(
+                    "Warning: audioOutput=earpiece cannot be used with PiP, backgroundPlayback, or notification controls - using playback category"
+                )
+            }
+
+            return .playback
+        }
+
+        // Earpiece requires playAndRecord
+        if earpiece {
+            if silentSwitchObey {
+                print(
+                    "Warning: audioOutput=earpiece cannot be used with ignoreSilentSwitch=obey - using playAndRecord category"
+                )
+            }
+            return .playAndRecord
+        }
+
+        // Honor silent switch if requested
+        if silentSwitchObey {
+            return .ambient
+        }
+
+        // Default to playback for most cases
+        return .playback
     }
 
     private func activateAudioSession() {

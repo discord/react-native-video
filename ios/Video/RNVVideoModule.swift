@@ -7,8 +7,9 @@ import React_Core
 /// `NativeExperimentBridgeManager`) gated behind the video stutter mitigation experiment.
 ///
 /// - `optimizeConfigureAudio`: legacy 5.2.1 flag that skipped audio session work for muted
-///   videos. v6 `AudioSessionManager` now skips session changes for muted-only playback and
-///   for unmuted "inherit" (v5 no-op); this flag remains for JS API compatibility only.
+///   videos. v6 `AudioSessionManager` now skips session changes for muted-only playback;
+///   unmuted "inherit" should use `disableAudioSessionManagement` in-app. This flag remains
+///   for JS API compatibility only.
 /// - `useBackgroundProgressQueue`: runs the periodic progress time observer on a background
 ///   serial queue so `sendProgressUpdate` can call AVPlayer APIs that `dispatch_sync` internally
 ///   (e.g. `currentDate`) without stalling the main thread. Event delivery is marshalled back to
