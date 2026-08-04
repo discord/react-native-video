@@ -14,8 +14,7 @@ RCT_EXPORT_VIEW_PROPERTY(textTracks, NSArray);
 RCT_EXPORT_VIEW_PROPERTY(selectedTextTrack, NSDictionary);
 RCT_EXPORT_VIEW_PROPERTY(selectedAudioTrack, NSDictionary);
 RCT_EXPORT_VIEW_PROPERTY(chapters, NSArray);
-// muted before paused: RN may apply props in export order; playing before mute
-// is set lets AVPlayer activate the audio session and interrupt other apps' PiP.
+// Apply muted before paused so decorative muted+playing mounts don't briefly play unmuted.
 RCT_EXPORT_VIEW_PROPERTY(muted, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(paused, BOOL);
 RCT_EXPORT_VIEW_PROPERTY(controls, BOOL);

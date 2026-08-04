@@ -56,10 +56,7 @@ class AudioSessionManager {
             return
         }
 
-        // Track only — do not configure here. Init runs before JS props (muted,
-        // mixWithOthers, disableAudioSessionManagement). Configuring .playback at
-        // register interrupted other apps (YouTube PiP) for muted decorative mounts.
-        // Session updates are driven by playerPropertiesChanged / playback.
+        // Do not configure here — JS props (especially muted) are not applied yet.
         videoViews.add(view)
     }
 
@@ -81,10 +78,8 @@ class AudioSessionManager {
             return
         }
 
-        // Only unmuted, actively playing players (or remote-control) should touch
-        // AVAudioSession. setCategory(.playback) interrupts other apps even when
-        // we never activate. Discord 5.2.1 skipped configureAudio for muted views
-        // via optimizeConfigureAudio; that mute skip is now the default here.
+        // Same idea as v5 optimizeConfigureAudio: muted-only playback must not
+        // call setCategory(.playback), which interrupts other apps (YouTube PiP).
         guard hasUnmutedPlayingPlayer() || remoteControlEventsActive else {
             return
         }
@@ -126,14 +121,11 @@ class AudioSessionManager {
 
     /// Notification that a player's properties have changed
     func playerPropertiesChanged(view: RCTVideo) {
-        // Only update if this is a registered view
         guard videoViews.contains(view) else {
             return
         }
 
-        // Coalesce updates from the same RN prop pass. `paused` is often applied
-        // before `muted`; configuring synchronously on pause→play would see the
-        // default unmute and call setCategory(.playback), killing YouTube PiP.
+        // Let the rest of this RN prop pass finish (muted vs paused ordering).
         DispatchQueue.main.async { [weak self] in
             self?.updateAudioSessionConfiguration()
         }

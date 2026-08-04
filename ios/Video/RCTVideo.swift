@@ -36,7 +36,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     private var _maxBitRate: Float?
 
     private var _automaticallyWaitsToMinimizeStalling = true
-    private var _muted = true
+    private var _muted = false
     private var _paused = false
     private var _repeat = false
     private var _isPlaying = false
@@ -872,13 +872,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 _player?.rate = 0.0
             }
         } else {
-            // Ensure mute is applied before play. RN may deliver `paused` before `muted`
-            // in the same update (see RCTVideoManager export order); playing unmuted
-            // even briefly lets AVPlayer activate the audio session and interrupt PiP.
+            // Keep mute in sync before play — RN can deliver paused in the same
+            // update as muted; playing while the player is still unmuted can
+            // activate AVAudioSession and interrupt other apps (YouTube PiP).
             _player?.isMuted = _muted
-            if _muted, !_controls {
-                _player?.volume = 0
-            }
 
             if _adPlaying {
                 #if USE_GOOGLE_IMA
@@ -955,8 +952,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setMuted(_ muted: Bool) {
         _muted = muted
-        // Notify even if applyModifiers early-returns (item not readyToPlay yet).
-        // AudioSessionManager keys off isMuted() for whether to touch AVAudioSession.
+        // applyModifiers can return early before readyToPlay; session logic still needs isMuted().
         AudioSessionManager.shared.playerPropertiesChanged(view: self)
         applyModifiers()
     }
@@ -1304,8 +1300,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setDisableAudioSessionManagement(_ disableAudioSessionManagement: Bool) {
         _disableAudioSessionManagement = disableAudioSessionManagement
-        // Prop often lands after init's registerView already ran; re-evaluate so
-        // decorative videos can opt out without a leftover .playback category.
         AudioSessionManager.shared.playerPropertiesChanged(view: self)
     }
 
