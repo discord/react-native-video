@@ -78,9 +78,20 @@ class AudioSessionManager {
             return
         }
 
-        // Same idea as v5 optimizeConfigureAudio: muted-only playback must not
-        // call setCategory(.playback), which interrupts other apps (YouTube PiP).
-        guard hasUnmutedPlayingPlayer() || remoteControlEventsActive else {
+        if remoteControlEventsActive {
+            configureForRemoteControlEvents()
+            return
+        }
+
+        // Muted-only mounts must not touch AVAudioSession (YouTube PiP / Spotify).
+        guard hasUnmutedPlayingPlayer() else {
+            return
+        }
+
+        // v5 parity: mixWithOthers/ignoreSilentSwitch "inherit" meant configureAudio
+        // was a no-op. Video Quest / ads set inherit so background music can continue.
+        // Upstream v6 always setCategory(.playback) for unmuted play — too aggressive.
+        guard hasExplicitAudioSessionConfiguration() else {
             return
         }
 
@@ -91,6 +102,20 @@ class AudioSessionManager {
     private func hasUnmutedPlayingPlayer() -> Bool {
         return videoViews.allObjects.contains { view in
             return !view.isMuted() && view._player != nil && view._player?.rate != 0
+        }
+    }
+
+    /// True when any registered view opts into session changes (not plain "inherit").
+    private func hasExplicitAudioSessionConfiguration() -> Bool {
+        return videoViews.allObjects.contains { view in
+            view._mixWithOthers == "mix"
+                || view._mixWithOthers == "duck"
+                || view._ignoreSilentSwitch == "ignore"
+                || view._ignoreSilentSwitch == "obey"
+                || view._playInBackground
+                || view._showNotificationControls
+                || view._audioOutput == "earpiece"
+                || view.isPictureInPictureActive()
         }
     }
 
