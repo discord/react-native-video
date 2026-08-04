@@ -74,15 +74,29 @@ class AudioSessionManager {
     }
 
     func updateAudioSessionConfiguration() {
-        // Activate audio session if needed
-        let isAnyPlayerPlaying = videoViews.allObjects.contains { view in
+        if isAudioSessionManagementDisabled {
+            return
+        }
+
+        // Only unmuted, actively playing players (or remote-control) should touch
+        // AVAudioSession. Muted decorative loops still call registerView from init,
+        // before JS props like muted / disableAudioSessionManagement apply.
+        // Calling setCategory(.playback) in that case interrupts other apps
+        // (YouTube PiP, Spotify) even though activate is already gated on unmuted play.
+        //
+        // Discord 5.2.1 skipped configureAudio for muted views when
+        // optimizeConfigureAudio was on. v6 centralized session work here but
+        // always called configureAudioSession() on register — restoring the mute
+        // skip as default (not experiment-gated).
+        let isAnyUnmutedPlayerPlaying = videoViews.allObjects.contains { view in
             return !view.isMuted() && view._player != nil && view._player?.rate != 0
         }
 
-        if isAnyPlayerPlaying || remoteControlEventsActive {
-            activateAudioSession()
+        if !isAnyUnmutedPlayerPlaying && !remoteControlEventsActive {
+            return
         }
 
+        activateAudioSession()
         configureAudioSession()
     }
 

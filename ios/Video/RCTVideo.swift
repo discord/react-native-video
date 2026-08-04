@@ -1293,6 +1293,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setDisableAudioSessionManagement(_ disableAudioSessionManagement: Bool) {
         _disableAudioSessionManagement = disableAudioSessionManagement
+        // Prop often lands after init's registerView already ran; re-evaluate so
+        // decorative videos can opt out without a leftover .playback category.
+        AudioSessionManager.shared.playerPropertiesChanged(view: self)
     }
 
     @objc
