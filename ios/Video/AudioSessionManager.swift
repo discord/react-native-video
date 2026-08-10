@@ -8,6 +8,10 @@ class AudioSessionManager {
     private var isAudioSessionActive = false
     private var remoteControlEventsActive = false
     private var isAudioSessionManagementForcedDisabled = false
+    /// Discord: true once we have taken the session over for real playback. Muted-only mounts
+    /// never set it, so they never touch the session; once set, we owe other apps a relax pass
+    /// when playback stops.
+    private var hasConfiguredAudioSession = false
 
     private var isAudioSessionManagementDisabled: Bool {
         if isAudioSessionManagementForcedDisabled {
@@ -88,11 +92,19 @@ class AudioSessionManager {
             return !view.isMuted() && view._player != nil && view._player?.rate != 0
         }
         guard isAnyPlayerPlaying else {
+            // Discord: nothing is playing. If we never configured the session there is nothing
+            // to undo — leave it alone. If we did, relax it back to `.mixWithOthers` and give it
+            // up so interrupted background audio (Spotify, podcasts) can resume.
+            if hasConfiguredAudioSession {
+                configureAudioSession()
+                deactivateAudioSession()
+            }
             return
         }
 
         activateAudioSession()
         configureAudioSession()
+        hasConfiguredAudioSession = true
     }
 
     /// Handle remote control events from NowPlayingInfoCenterManager
@@ -322,6 +334,9 @@ class AudioSessionManager {
                 false, options: .notifyOthersOnDeactivation
             )
             isAudioSessionActive = false
+            // Discord: we no longer own the session, so a later muted-only mount must not
+            // trigger the relax pass in updateAudioSessionConfiguration.
+            hasConfiguredAudioSession = false
         } catch {
             print("Failed to deactivate audio session: \(error.localizedDescription)")
         }

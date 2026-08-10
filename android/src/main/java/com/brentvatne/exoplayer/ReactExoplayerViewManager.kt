@@ -68,6 +68,13 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
         return ReactExoplayerView(themedReactContext, config)
     }
 
+    // Discord: httpEngine is recorded by its setter and applied here, once every prop in this
+    // pass has landed, so `src` + `httpEngine` on first mount cause a single player init.
+    override fun onAfterUpdateTransaction(view: ReactExoplayerView) {
+        super.onAfterUpdateTransaction(view)
+        view.applyPendingHttpEngine()
+    }
+
     override fun onDropViewInstance(view: ReactExoplayerView) {
         view.cleanUpResources()
         view.exitPictureInPictureMode()

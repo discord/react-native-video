@@ -27,6 +27,11 @@ object DataSourceUtil {
     // (e.g. OkHttp, Cronet) by name.
     private var httpEngineFactoryResolver: ((String) -> DataSource.Factory?)? = null
 
+    // Discord: factories registered by the host app. Kept out of the default* slots above,
+    // which get rebuilt (and would otherwise be clobbered) by any source carrying headers.
+    private var hostDataSourceFactory: DataSource.Factory? = null
+    private var hostHttpDataSourceFactory: HttpDataSource.Factory? = null
+
     private fun getUserAgent(context: ReactContext): String {
         if (userAgent == null) {
             userAgent = Util.getUserAgent(context, context.packageName)
@@ -80,7 +85,13 @@ object DataSourceUtil {
 
     @JvmStatic
     fun getDefaultDataSourceFactory(context: ReactContext, bandwidthMeter: DefaultBandwidthMeter?, requestHeaders: Map<String, String>?): DataSource.Factory {
-        if (defaultDataSourceFactory == null || !requestHeaders.isNullOrEmpty()) {
+        // Discord: a source with headers needs a header-aware factory, but building one must not
+        // evict the host's shared-cache factory for every later source.
+        if (!requestHeaders.isNullOrEmpty()) {
+            return buildDataSourceFactory(context, bandwidthMeter, requestHeaders)
+        }
+        hostDataSourceFactory?.let { return it }
+        if (defaultDataSourceFactory == null) {
             defaultDataSourceFactory = buildDataSourceFactory(context, bandwidthMeter, requestHeaders)
         }
         return defaultDataSourceFactory as DataSource.Factory
@@ -90,7 +101,7 @@ object DataSourceUtil {
     // portal player reuse the same SimpleCache instance.
     @JvmStatic
     fun setDefaultDataSourceFactory(factory: DataSource.Factory?) {
-        defaultDataSourceFactory = factory
+        hostDataSourceFactory = factory
     }
 
     @JvmStatic
@@ -99,7 +110,11 @@ object DataSourceUtil {
         bandwidthMeter: DefaultBandwidthMeter?,
         requestHeaders: Map<String, String>?
     ): HttpDataSource.Factory {
-        if (defaultHttpDataSourceFactory == null || !requestHeaders.isNullOrEmpty()) {
+        if (!requestHeaders.isNullOrEmpty()) {
+            return buildHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
+        }
+        hostHttpDataSourceFactory?.let { return it }
+        if (defaultHttpDataSourceFactory == null) {
             defaultHttpDataSourceFactory = buildHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
         }
         return defaultHttpDataSourceFactory as HttpDataSource.Factory
@@ -107,7 +122,7 @@ object DataSourceUtil {
 
     @JvmStatic
     fun setDefaultHttpDataSourceFactory(factory: HttpDataSource.Factory?) {
-        defaultHttpDataSourceFactory = factory
+        hostHttpDataSourceFactory = factory
     }
 
     private fun buildDataSourceFactory(

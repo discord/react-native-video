@@ -192,6 +192,11 @@ public class ReactExoplayerView extends FrameLayout implements
     private DataSource.Factory mediaDataSourceFactory;
     // Discord: selects the HTTP data source engine (default/okhttp/cronet) via DataSourceUtil.
     private String httpEngine;
+    // Discord: set when httpEngine changes; applied once per prop transaction.
+    private boolean httpEngineNeedsApply;
+    // Discord: bounds the MediaCodec-exhaustion recovery in onPlayerError. Reset on STATE_READY.
+    private static final int MAX_MEDIA_CODEC_RECOVERY_ATTEMPTS = 1;
+    private int mediaCodecRecoveryAttempts = 0;
     private ExoPlayer player;
     private DefaultTrackSelector trackSelector;
     private boolean playerNeedsSource;
@@ -1228,13 +1233,15 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
-            // Discord: stop before release to free MediaCodec resources promptly.
+            // Discord: stop before release to free MediaCodec resources promptly. stop() can
+            // throw (e.g. off the playback thread), but release() must still run or the
+            // ExoPlayer instance and its MediaCodec/Surface are orphaned.
             try {
                 player.stop();
-                player.release();
             } catch (Exception e) {
-                // Ignore release errors to prevent crash loops
+                DebugLog.e(TAG, "Error stopping player before release: " + e.getMessage());
             }
+            player.release();
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
@@ -1322,8 +1329,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private boolean requestAudioFocus() {
-        // Discord: skip AudioManager when muted so multiple muted previews do not contend for focus.
-        if (disableFocus || muted || source.getUri() == null || this.hasAudioFocus) {
+        if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
             return true;
         }
         int result = audioManager.requestAudioFocus(audioFocusChangeListener,
@@ -1338,6 +1344,13 @@ public class ReactExoplayerView extends FrameLayout implements
         }
 
         if (playWhenReady) {
+            // Discord: muted playback does not need audio focus, so multiple muted previews do
+            // not contend for it. hasAudioFocus must stay false here — setMutedModifier relies
+            // on it to request focus for real once the view is unmuted.
+            if (muted) {
+                player.setPlayWhenReady(true);
+                return;
+            }
             this.hasAudioFocus = requestAudioFocus();
             if (this.hasAudioFocus) {
                 player.setPlayWhenReady(true);
@@ -1446,6 +1459,8 @@ public class ReactExoplayerView extends FrameLayout implements
                 case Player.STATE_READY:
                     text += "ready";
                     hasVideoEnded = false;
+                    // Discord: playback recovered, so a later decoder failure gets a fresh budget.
+                    mediaCodecRecoveryAttempts = 0;
                     eventEmitter.onReadyForDisplay.invoke();
                     onBuffering(false);
                     clearProgressMessageHandler(); // ensure there is no other message
@@ -1607,6 +1622,15 @@ public class ReactExoplayerView extends FrameLayout implements
             return videoTracks;
         }
 
+        // Discord: upstream never marks a video track selected (unlike audio/text), so consumers
+        // cannot tell which rendition is playing. Prefer the format actually being rendered —
+        // an adaptive TrackSelection covers the whole ABR ladder, not the current rung.
+        Format renderedFormat = player != null ? player.getVideoFormat() : null;
+        TrackSelection videoSelection = null;
+        if (renderedFormat == null && player != null) {
+            videoSelection = player.getCurrentTrackSelections().get(C.TRACK_TYPE_VIDEO);
+        }
+
         TrackGroupArray groups = info.getTrackGroups(index);
         for (int i = 0; i < groups.length; ++i) {
             TrackGroup group = groups.get(i);
@@ -1615,6 +1639,13 @@ public class ReactExoplayerView extends FrameLayout implements
                 Format format = group.getFormat(trackIndex);
                 if (isFormatSupported(format)) {
                     VideoTrack videoTrack = exoplayerVideoTrackToGenericVideoTrack(format, trackIndex);
+                    if (renderedFormat != null) {
+                        videoTrack.setSelected(renderedFormat.id != null
+                                ? renderedFormat.id.equals(format.id)
+                                : renderedFormat.equals(format));
+                    } else {
+                        videoTrack.setSelected(isTrackSelected(videoSelection, group, trackIndex));
+                    }
                     videoTracks.add(videoTrack);
                 }
             }
@@ -1965,11 +1996,20 @@ public class ReactExoplayerView extends FrameLayout implements
         String errorString = "ExoPlaybackException: " + PlaybackException.getErrorCodeName(e.errorCode);
         String errorCode = "2" + e.errorCode;
         // Discord: recover from MediaCodec exhaustion by releasing and re-initializing the player.
+        // Bounded: if the retry does not reach STATE_READY (which resets the budget), fall through
+        // to the normal error path so JS still sees onVideoError and can show retry UI.
         Throwable cause = e.getCause();
         if (cause != null && cause.getMessage() != null &&
-                cause.getMessage().contains("MediaCodecVideoRenderer")) {
-            releasePlayer();
-            initializePlayer();
+                cause.getMessage().contains("MediaCodecVideoRenderer") &&
+                mediaCodecRecoveryAttempts < MAX_MEDIA_CODEC_RECOVERY_ATTEMPTS) {
+            mediaCodecRecoveryAttempts++;
+            DebugLog.w(TAG, "MediaCodec failure, re-initializing player (attempt "
+                    + mediaCodecRecoveryAttempts + "): " + cause.getMessage());
+            // Do not release from inside the player's own error callback.
+            mainHandler.post(() -> {
+                releasePlayer();
+                initializePlayer();
+            });
             return;
         }
         switch(e.errorCode) {
@@ -2064,6 +2104,9 @@ public class ReactExoplayerView extends FrameLayout implements
             final DataSource.Factory tmpMediaDataSourceFactory =
                     DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
                             source.getHeaders(), httpEngine);
+            // Discord: this source is now built with the current engine, so a pending
+            // httpEngine prop in the same transaction must not trigger a second init.
+            this.httpEngineNeedsApply = false;
 
             @Nullable
             final DataSource.Factory overriddenMediaDataSourceFactory = ReactNativeVideoManager.Companion.getInstance().overrideMediaDataSourceFactory(source, tmpMediaDataSourceFactory);
@@ -2100,17 +2143,40 @@ public class ReactExoplayerView extends FrameLayout implements
         clearResumePosition();
     }
 
-    // Discord: select HTTP engine (default/okhttp/cronet). Reload when the engine changes.
+    // Discord: select HTTP engine (default/okhttp/cronet). Only records the value here — RN can
+    // deliver httpEngine after src in the same prop pass, and re-initializing from the setter
+    // would tear down and re-prepare a player that setSrc has just built. applyPendingHttpEngine
+    // runs once per transaction instead.
     public void setHttpEngine(String httpEngine) {
-        boolean changed = !Objects.equals(this.httpEngine, httpEngine);
-        this.httpEngine = httpEngine;
-        if (changed && source.getUri() != null) {
-            this.mediaDataSourceFactory =
-                    DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
-                            source.getHeaders(), this.httpEngine);
-            playerNeedsSource = true;
-            initializePlayer();
+        if (Objects.equals(this.httpEngine, httpEngine)) {
+            return;
         }
+        this.httpEngine = httpEngine;
+        this.httpEngineNeedsApply = true;
+    }
+
+    // Discord: called from ReactExoplayerViewManager.onAfterUpdateTransaction, after every prop
+    // in this pass has been applied.
+    public void applyPendingHttpEngine() {
+        if (!httpEngineNeedsApply) {
+            return;
+        }
+        httpEngineNeedsApply = false;
+        if (source.getUri() == null) {
+            // No source yet — the next setSrc builds its factory with the new engine.
+            return;
+        }
+        this.mediaDataSourceFactory =
+                DataSourceUtil.getDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                        source.getHeaders(), this.httpEngine);
+        if (player == null) {
+            // setSrc in this same pass has already posted initializePlayer (it runs a tick later,
+            // precisely so props can settle); it will pick up the factory above. Re-initializing
+            // here would only tear that down and prepare the source a second time.
+            return;
+        }
+        playerNeedsSource = true;
+        initializePlayer();
     }
 
     public void setProgressUpdateInterval(final float progressUpdateInterval) {
