@@ -445,14 +445,22 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                     _didRequestAds = true
                 }
             #endif
-            onVideoProgress?([
+            let progressPayload: [AnyHashable: Any] = [
                 "currentTime": currentTimeSecs,
                 "playableDuration": RCTVideoUtils.calculatePlayableDuration(_player, withSource: _source),
                 "atValue": currentTime?.value ?? .zero,
                 "currentPlaybackTime": NSNumber(value: Double(currentPlaybackTime?.timeIntervalSince1970 ?? 0 * 1000)).int64Value,
                 "target": reactTag as Any,
                 "seekableDuration": RCTVideoUtils.calculateSeekableDuration(_player),
-            ])
+            ]
+            // Discord: marshal onVideoProgress back to main when observing off-main.
+            if RNVVideoModule.useBackgroundProgressQueue && !Thread.isMainThread {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onVideoProgress?(progressPayload)
+                }
+            } else {
+                onVideoProgress?(progressPayload)
+            }
         }
     }
 
