@@ -58,6 +58,7 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
         private const val PROP_SHOW_NOTIFICATION_CONTROLS = "showNotificationControls"
         private const val PROP_DEBUG = "debug"
         private const val PROP_CONTROLS_STYLES = "controlsStyles"
+        private const val PROP_HTTP_ENGINE = "httpEngine"
     }
 
     override fun getName(): String = REACT_CLASS
@@ -262,5 +263,11 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
     fun setControlsStyles(videoView: ReactExoplayerView, controlsStyles: ReadableMap?) {
         val controlsConfig = ControlsConfig.parse(controlsStyles)
         videoView.setControlsStyles(controlsConfig)
+    }
+
+    // Discord: selects the HTTP data source engine (default/okhttp/cronet) on Android.
+    @ReactProp(name = PROP_HTTP_ENGINE)
+    fun setHttpEngine(videoView: ReactExoplayerView, httpEngine: String?) {
+        videoView.setHttpEngine(httpEngine)
     }
 }
