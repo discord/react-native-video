@@ -2,7 +2,7 @@ import AVFoundation
 import AVKit
 import Foundation
 import MediaAccessibility
-import React
+import React_Core
 
 #if os(iOS)
     class RCTPictureInPicture: NSObject, AVPictureInPictureControllerDelegate {
