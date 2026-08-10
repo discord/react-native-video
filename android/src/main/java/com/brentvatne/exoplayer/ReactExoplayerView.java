@@ -1228,7 +1228,13 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
-            player.release();
+            // Discord: stop before release to free MediaCodec resources promptly.
+            try {
+                player.stop();
+                player.release();
+            } catch (Exception e) {
+                // Ignore release errors to prevent crash loops
+            }
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
@@ -1316,7 +1322,8 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private boolean requestAudioFocus() {
-        if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
+        // Discord: skip AudioManager when muted so multiple muted previews do not contend for focus.
+        if (disableFocus || muted || source.getUri() == null || this.hasAudioFocus) {
             return true;
         }
         int result = audioManager.requestAudioFocus(audioFocusChangeListener,
@@ -1957,6 +1964,14 @@ public class ReactExoplayerView extends FrameLayout implements
     public void onPlayerError(@NonNull PlaybackException e) {
         String errorString = "ExoPlaybackException: " + PlaybackException.getErrorCodeName(e.errorCode);
         String errorCode = "2" + e.errorCode;
+        // Discord: recover from MediaCodec exhaustion by releasing and re-initializing the player.
+        Throwable cause = e.getCause();
+        if (cause != null && cause.getMessage() != null &&
+                cause.getMessage().contains("MediaCodecVideoRenderer")) {
+            releasePlayer();
+            initializePlayer();
+            return;
+        }
         switch(e.errorCode) {
             case PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED:
             case PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED:
@@ -2561,9 +2576,21 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     public void setMutedModifier(boolean muted) {
+        boolean wasMuted = this.muted;
         this.muted = muted;
         if (player != null) {
             player.setVolume(muted ? 0.f : audioVolume);
+        }
+        // Discord: release/reacquire audio focus when mute state changes while playing.
+        if (wasMuted == muted || player == null || !player.getPlayWhenReady() || disableFocus) {
+            return;
+        }
+        if (muted && hasAudioFocus) {
+            audioManager.abandonAudioFocus(audioFocusChangeListener);
+            hasAudioFocus = false;
+        }
+        if (!muted && !this.hasAudioFocus) {
+            this.hasAudioFocus = requestAudioFocus();
         }
     }
 
