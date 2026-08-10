@@ -56,8 +56,8 @@ class AudioSessionManager {
             return
         }
 
+        // Discord: do not configure here — JS props (especially muted) are not applied yet.
         videoViews.add(view)
-        updateAudioSessionConfiguration()
     }
 
     func unregisterView(view: RCTVideo) {
@@ -74,15 +74,24 @@ class AudioSessionManager {
     }
 
     func updateAudioSessionConfiguration() {
-        // Activate audio session if needed
+        if isAudioSessionManagementDisabled {
+            return
+        }
+
+        if remoteControlEventsActive {
+            configureForRemoteControlEvents()
+            return
+        }
+
+        // Discord: muted-only mounts must not call setCategory(.playback) (YouTube PiP / Spotify).
         let isAnyPlayerPlaying = videoViews.allObjects.contains { view in
             return !view.isMuted() && view._player != nil && view._player?.rate != 0
         }
-
-        if isAnyPlayerPlaying || remoteControlEventsActive {
-            activateAudioSession()
+        guard isAnyPlayerPlaying else {
+            return
         }
 
+        activateAudioSession()
         configureAudioSession()
     }
 
@@ -113,9 +122,13 @@ class AudioSessionManager {
 
     /// Notification that a player's properties have changed
     func playerPropertiesChanged(view: RCTVideo) {
-        // Only update if this is a registered view
-        if videoViews.contains(view) {
-            updateAudioSessionConfiguration()
+        guard videoViews.contains(view) else {
+            return
+        }
+
+        // Discord: let the rest of this RN prop pass finish (muted vs paused ordering).
+        DispatchQueue.main.async { [weak self] in
+            self?.updateAudioSessionConfiguration()
         }
     }
 

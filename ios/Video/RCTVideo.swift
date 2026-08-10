@@ -871,6 +871,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 _player?.rate = 0.0
             }
         } else {
+            // Discord: keep mute in sync before play — RN can deliver paused in the same
+            // update as muted; playing while still unmuted can interrupt other apps (YouTube PiP).
+            _player?.isMuted = _muted
+
             if _adPlaying {
                 #if USE_GOOGLE_IMA
                     _imaAdsManager.getAdsManager()?.resume()
@@ -946,6 +950,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setMuted(_ muted: Bool) {
         _muted = muted
+        // Discord: applyModifiers can return early before readyToPlay; session still needs isMuted().
+        AudioSessionManager.shared.playerPropertiesChanged(view: self)
         applyModifiers()
     }
 
@@ -1292,6 +1298,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func setDisableAudioSessionManagement(_ disableAudioSessionManagement: Bool) {
         _disableAudioSessionManagement = disableAudioSessionManagement
+        AudioSessionManager.shared.playerPropertiesChanged(view: self)
     }
 
     @objc
