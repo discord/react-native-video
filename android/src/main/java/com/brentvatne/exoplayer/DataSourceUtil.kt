@@ -1,6 +1,7 @@
 package com.brentvatne.exoplayer
 
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.AssetDataSource
 import androidx.media3.datasource.DataSource
@@ -17,9 +18,14 @@ import okhttp3.Call
 import okhttp3.JavaNetCookieJar
 
 object DataSourceUtil {
+    private const val TAG = "DataSourceUtil"
     private var defaultDataSourceFactory: DataSource.Factory? = null
     private var defaultHttpDataSourceFactory: HttpDataSource.Factory? = null
     private var userAgent: String? = null
+
+    // Discord: resolver registered by the host app to select an HTTP data source engine
+    // (e.g. OkHttp, Cronet) by name.
+    private var httpEngineFactoryResolver: ((String) -> DataSource.Factory?)? = null
 
     private fun getUserAgent(context: ReactContext): String {
         if (userAgent == null) {
@@ -29,11 +35,62 @@ object DataSourceUtil {
     }
 
     @JvmStatic
+    fun setHttpEngineFactoryResolver(resolver: ((String) -> DataSource.Factory?)?) {
+        httpEngineFactoryResolver = resolver
+    }
+
+    @JvmStatic
+    fun getDataSourceFactory(
+        context: ReactContext,
+        bandwidthMeter: DefaultBandwidthMeter?,
+        requestHeaders: Map<String, String>?,
+        httpEngine: String?
+    ): DataSource.Factory {
+        if (httpEngine != null) {
+            val factory = httpEngineFactoryResolver?.invoke(httpEngine)
+            if (factory != null) {
+                return factory
+            }
+        }
+        return getDefaultDataSourceFactory(context, bandwidthMeter, requestHeaders)
+    }
+
+    @JvmStatic
+    fun getHttpDataSourceFactory(
+        context: ReactContext,
+        bandwidthMeter: DefaultBandwidthMeter?,
+        requestHeaders: Map<String, String>?,
+        httpEngine: String?
+    ): HttpDataSource.Factory {
+        if (httpEngine != null) {
+            val factory = httpEngineFactoryResolver?.invoke(httpEngine)
+            if (factory is HttpDataSource.Factory) {
+                return factory
+            }
+            if (factory != null) {
+                Log.w(
+                    TAG,
+                    "httpEngineFactoryResolver returned a DataSource.Factory that does not implement " +
+                        "HttpDataSource.Factory for engine '$httpEngine'; falling back to default HttpDataSource.Factory"
+                )
+            }
+        }
+        return getDefaultHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
+    }
+
+    @JvmStatic
     fun getDefaultDataSourceFactory(context: ReactContext, bandwidthMeter: DefaultBandwidthMeter?, requestHeaders: Map<String, String>?): DataSource.Factory {
         if (defaultDataSourceFactory == null || !requestHeaders.isNullOrEmpty()) {
             defaultDataSourceFactory = buildDataSourceFactory(context, bandwidthMeter, requestHeaders)
         }
         return defaultDataSourceFactory as DataSource.Factory
+    }
+
+    // Discord: host apps register a shared CacheDataSource.Factory so RNV and the native
+    // portal player reuse the same SimpleCache instance.
+    @JvmStatic
+    fun setDefaultDataSourceFactory(factory: DataSource.Factory?) {
+        defaultDataSourceFactory = factory
     }
 
     @JvmStatic
@@ -46,6 +103,11 @@ object DataSourceUtil {
             defaultHttpDataSourceFactory = buildHttpDataSourceFactory(context, bandwidthMeter, requestHeaders)
         }
         return defaultHttpDataSourceFactory as HttpDataSource.Factory
+    }
+
+    @JvmStatic
+    fun setDefaultHttpDataSourceFactory(factory: HttpDataSource.Factory?) {
+        defaultHttpDataSourceFactory = factory
     }
 
     private fun buildDataSourceFactory(
