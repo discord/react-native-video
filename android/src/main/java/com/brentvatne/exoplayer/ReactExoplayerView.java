@@ -17,6 +17,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -219,6 +220,7 @@ public class ReactExoplayerView extends FrameLayout implements
     public boolean enterPictureInPictureOnLeave = false;
     private PictureInPictureParams.Builder pictureInPictureParamsBuilder;
     private boolean hasAudioFocus = false;
+    private AudioFocusRequest audioFocusRequest;
     private float rate = 1f;
     private AudioOutput audioOutput = AudioOutput.SPEAKER;
     private float audioVolume = 1f;
@@ -1289,13 +1291,12 @@ public class ReactExoplayerView extends FrameLayout implements
 
             switch (focusChange) {
                 case AudioManager.AUDIOFOCUS_LOSS:
-                    view.hasAudioFocus = false;
                     view.eventEmitter.onAudioFocusChanged.invoke(false);
                     // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
                     if (activity != null) {
                         activity.runOnUiThread(view::pausePlayback);
                     }
-                    view.audioManager.abandonAudioFocus(this);
+                    view.releaseAudioFocus();
                     break;
                 case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                     view.eventEmitter.onAudioFocusChanged.invoke(false);
@@ -1328,14 +1329,52 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
+    // Discord: contend for audio only while unmuted and playing, then give it back so
+    // background apps (Spotify, podcasts) can resume. API 26+ needs AudioFocusRequest with
+    // AudioAttributes — the deprecated STREAM_MUSIC request is ignored by other apps.
+    // TRANSIENT_EXCLUSIVE matches voice messages: others pause and can auto-resume.
+    // GAIN is permanent LOSS and they never come back; MAY_DUCK mixes.
     private boolean requestAudioFocus() {
-        if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
+        if (disableFocus || muted) {
             return true;
         }
-        int result = audioManager.requestAudioFocus(audioFocusChangeListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN);
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        if (this.hasAudioFocus) {
+            return true;
+        }
+        int result;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.media.AudioAttributes playbackAttributes = new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build();
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(playbackAttributes)
+                    .setOnAudioFocusChangeListener(audioFocusChangeListener, mainHandler)
+                    .build();
+            result = audioManager.requestAudioFocus(audioFocusRequest);
+        } else {
+            result = audioManager.requestAudioFocus(audioFocusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
+        }
+        boolean granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        if (granted) {
+            hasAudioFocus = true;
+        }
+        return granted;
+    }
+
+    private void releaseAudioFocus() {
+        if (!hasAudioFocus) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+            audioFocusRequest = null;
+        } else {
+            audioManager.abandonAudioFocus(audioFocusChangeListener);
+        }
+        hasAudioFocus = false;
     }
 
     private void setPlayWhenReady(boolean playWhenReady) {
@@ -1351,12 +1390,12 @@ public class ReactExoplayerView extends FrameLayout implements
                 player.setPlayWhenReady(true);
                 return;
             }
-            this.hasAudioFocus = requestAudioFocus();
-            if (this.hasAudioFocus) {
+            if (requestAudioFocus()) {
                 player.setPlayWhenReady(true);
             }
         } else {
             player.setPlayWhenReady(false);
+            releaseAudioFocus();
         }
     }
 
@@ -1384,7 +1423,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void onStopPlayback() {
-        audioManager.abandonAudioFocus(audioFocusChangeListener);
+        releaseAudioFocus();
     }
 
     private void updateResumePosition() {
@@ -1475,6 +1514,11 @@ public class ReactExoplayerView extends FrameLayout implements
                         exoPlayerView.showController();
                     }
                     setKeepScreenOn(preventsDisplaySleepDuringVideoPlayback);
+                    // Discord: take focus once we are actually about to emit audio. Core init can
+                    // run before the first playWhenReady pass sticks, so this is the resume-safe net.
+                    if (playWhenReady && !muted && !disableFocus && !hasAudioFocus) {
+                        requestAudioFocus();
+                    }
                     break;
                 case Player.STATE_ENDED:
                     text += "ended";
@@ -2647,16 +2691,13 @@ public class ReactExoplayerView extends FrameLayout implements
         if (player != null) {
             player.setVolume(muted ? 0.f : audioVolume);
         }
-        // Discord: release/reacquire audio focus when mute state changes while playing.
         if (wasMuted == muted || player == null || !player.getPlayWhenReady() || disableFocus) {
             return;
         }
-        if (muted && hasAudioFocus) {
-            audioManager.abandonAudioFocus(audioFocusChangeListener);
-            hasAudioFocus = false;
-        }
-        if (!muted && !this.hasAudioFocus) {
-            this.hasAudioFocus = requestAudioFocus();
+        if (muted) {
+            releaseAudioFocus();
+        } else {
+            requestAudioFocus();
         }
     }
 
