@@ -39,9 +39,12 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
     private val playerView = PlayerView(context).apply {
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         setShutterBackgroundColor(Color.TRANSPARENT)
-        useController = true
-        controllerAutoShow = true
-        controllerHideOnTouch = true
+        // Match JS `controls={false}` default. Media3 PlayerView otherwise
+        // intercepts every touch to toggle its native controller, so RN
+        // Pressable/overlays never receive taps.
+        useController = false
+        controllerAutoShow = false
+        controllerHideOnTouch = false
         controllerShowTimeoutMs = 5000
         // Don't show subtitle button by default - will be enabled when tracks are available
         setShowSubtitleButton(false)
@@ -159,11 +162,11 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
     fun setUseController(useController: Boolean) {
         playerView.useController = useController
         if (useController) {
-            // Ensure proper touch handling when controls are enabled
             playerView.controllerAutoShow = true
             playerView.controllerHideOnTouch = true
-            // Show controls immediately when enabled
             playerView.showController()
+        } else {
+            playerView.hideController()
         }
     }
 
