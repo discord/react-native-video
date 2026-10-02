@@ -93,7 +93,6 @@ class ReactExoplayerView extends FrameLayout implements
 
     private static final CookieManager DEFAULT_COOKIE_MANAGER;
     private static final int SHOW_PROGRESS = 1;
-    private static final int TARGET_BUFFER_BYTES = 16 * 1024 * 1024;
 
     static {
         DEFAULT_COOKIE_MANAGER = new CookieManager();
@@ -424,8 +423,6 @@ class ReactExoplayerView extends FrameLayout implements
                     DefaultLoadControl.Builder defaultLoadControlBuilder = new DefaultLoadControl.Builder();
                     defaultLoadControlBuilder.setAllocator(allocator);
                     defaultLoadControlBuilder.setBufferDurationsMs(minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferForPlaybackAfterRebufferMs);
-                    defaultLoadControlBuilder.setTargetBufferBytes(TARGET_BUFFER_BYTES);
-                    defaultLoadControlBuilder.setPrioritizeTimeOverSizeThresholds(false);
                     DefaultLoadControl defaultLoadControl = defaultLoadControlBuilder.build();
                     DefaultRenderersFactory renderersFactory =
                             new DefaultRenderersFactory(getContext())
